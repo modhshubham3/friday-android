@@ -15,6 +15,9 @@ android {
         // the in-app updater only offers a build with a higher versionCode.
         versionCode = (findProperty("vCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("vName") as String?) ?: "dev"
+
+        // The wake word engine ships a native library per CPU type; this phone is 64-bit ARM.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     // A fixed debug keystore is committed on purpose: every CI build then carries
@@ -54,4 +57,5 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("ai.picovoice:porcupine-android:4.0.2") // on-device wake word, audio never leaves the phone
 }

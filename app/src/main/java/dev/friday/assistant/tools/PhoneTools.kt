@@ -1,14 +1,17 @@
 package dev.friday.assistant.tools
 
+import android.app.Activity
 import android.app.AlarmManager
+import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
+import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.ContactsContract
-import androidx.activity.ComponentActivity
+import android.telecom.TelecomManager
 import dev.friday.assistant.SavedContact
 import dev.friday.assistant.Settings
 import dev.friday.assistant.llm.ToolCall
@@ -35,11 +38,19 @@ import kotlin.math.abs
  *    next-alarm record, and the result says plainly when that check could not confirm.
  */
 class PhoneTools(
-    private val activity: ComponentActivity,
+    private val context: Context,
     private val settings: Settings,
     private val prompts: UserPrompts,
+    /** True when running from the voice service with no screen open, where some things work differently. */
+    private val fromBackground: Boolean = false,
 ) {
     data class ClockApp(val pkg: String, val label: String)
+
+    /** Opens another app's screen. Outside an Activity Android requires a task of its own. */
+    private fun launch(intent: Intent) {
+        if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
 
     val specs: List<ToolSpec> = listOf(
         ToolSpec(
@@ -117,7 +128,7 @@ class PhoneTools(
     /** Every app that can set alarms. Phones often have two (the maker's Clock and Google's). */
     @Suppress("DEPRECATION")
     fun clockApps(): List<ClockApp> {
-        val pm = activity.packageManager
+        val pm = context.packageManager
         return pm.queryIntentActivities(Intent(AlarmClock.ACTION_SET_ALARM), 0)
             .map { ClockApp(it.activityInfo.packageName, it.loadLabel(pm).toString()) }
             .distinctBy { it.pkg }
@@ -135,7 +146,7 @@ class PhoneTools(
         return apps[index]
     }
 
-    private fun alarmManager() = activity.getSystemService(AlarmManager::class.java)
+    private fun alarmManager() = context.getSystemService(AlarmManager::class.java)
 
     /** The next moment the clock shows [hour]:[minute]. */
     private fun nextOccurrence(hour: Int, minute: Int): Long {
@@ -180,7 +191,7 @@ class PhoneTools(
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
         args.optString("label").takeIf { it.isNotBlank() }?.let { intent.putExtra(AlarmClock.EXTRA_MESSAGE, it) }
         try {
-            activity.startActivity(intent)
+            launch(intent)
         } catch (e: ActivityNotFoundException) {
             return "Error: ${app.label} alarm set nahi kar payi"
         }
@@ -230,7 +241,7 @@ class PhoneTools(
             .putExtra(AlarmClock.EXTRA_HOUR, hour)
             .putExtra(AlarmClock.EXTRA_MINUTES, minute)
         try {
-            activity.startActivity(intent)
+            launch(intent)
         } catch (e: ActivityNotFoundException) {
             return "Error: ${app.label} alarm hatane ki request nahi leti. User ko Clock app se haath se hatana hoga"
         }
@@ -300,10 +311,16 @@ class PhoneTools(
     private suspend fun placeCall(number: String, who: String): String {
         val uri = Uri.fromParts("tel", number.filter { it.isDigit() || it == '+' }, null)
         return if (prompts.ensureCallPhone()) {
-            activity.startActivity(Intent(Intent.ACTION_CALL, uri))
+            if (fromBackground) {
+                // With no screen of ours open, Android will not let us start the dialer's screen.
+                // The phone service can place the call itself, which also works on the lock screen.
+                context.getSystemService(TelecomManager::class.java).placeCall(uri, Bundle())
+            } else {
+                launch(Intent(Intent.ACTION_CALL, uri))
+            }
             "$who ko call lagayi ja rahi hai (Android ko call shuru karne ki request di)"
         } else {
-            activity.startActivity(Intent(Intent.ACTION_DIAL, uri))
+            launch(Intent(Intent.ACTION_DIAL, uri))
             "Call ki permission nahi mili, isliye dialer $who ke number ke saath khola; user ko call ka button dabana hai"
         }
     }
@@ -311,7 +328,7 @@ class PhoneTools(
     /** Every contact with a phone number: display name to its distinct numbers. */
     private suspend fun loadContacts(): Map<String, List<String>> = withContext(Dispatchers.IO) {
         val book = linkedMapOf<String, MutableList<String>>()
-        activity.contentResolver.query(
+        context.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -385,7 +402,7 @@ class PhoneTools(
     // ---- Flashlight -------------------------------------------------------
 
     private fun flashlight(on: Boolean): String {
-        val cameras = activity.getSystemService(CameraManager::class.java)
+        val cameras = context.getSystemService(CameraManager::class.java)
         val id = cameras.cameraIdList.firstOrNull {
             cameras.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return "Error: is phone mein flashlight nahi mili"

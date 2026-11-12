@@ -9,11 +9,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.text.InputType
 import android.text.format.DateUtils
 import android.util.TypedValue
@@ -22,6 +26,7 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -35,19 +40,16 @@ import androidx.core.view.WindowCompat
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
 import dev.friday.assistant.llm.ChatMessage
-import dev.friday.assistant.llm.GeminiProvider
-import dev.friday.assistant.llm.GroqProvider
-import dev.friday.assistant.llm.LlmRouter
 import dev.friday.assistant.tools.PhoneTools
 import dev.friday.assistant.tools.UserPrompts
+import dev.friday.assistant.voice.FridayService
+import dev.friday.assistant.voice.Speaker
+import dev.friday.assistant.voice.VoiceLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 import kotlin.coroutines.resume
 
 /**
@@ -91,12 +93,6 @@ class MainActivity : ComponentActivity() {
     private var micPulse: ObjectAnimator? = null
     private var typingView: View? = null
     private val typingAnimators = mutableListOf<ObjectAnimator>()
-
-    /** Built per question so a key changed in Settings applies immediately. */
-    private fun buildRouter() = LlmRouter(
-        settings.geminiModels.map { GeminiProvider(settings.geminiKey, it) } +
-            GroqProvider(settings.groqKey, settings.groqModel),
-    )
 
     /** Set while we wait for the user to allow "install unknown apps". */
     private var pendingUpdate: Updater.Update? = null
@@ -149,6 +145,10 @@ class MainActivity : ComponentActivity() {
             }
     }
 
+    private val pickWakeFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) saveWakeFile(uri)
+    }
+
     private val askMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startListening() else status.text = "Mic permission ke bina kaam nahi chalega"
@@ -178,7 +178,17 @@ class MainActivity : ComponentActivity() {
 
         tts = TextToSpeech(this) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
-            if (ttsReady) tts?.language = Locale("en", "IN")
+            if (ttsReady) {
+                tts?.language = Locale("en", "IN")
+                // While Friday speaks, the wake word listener sits out, or it hears the name in Friday's own voice.
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) { FridayService.resume(this@MainActivity) }
+
+                    @Deprecated("Required by the base class")
+                    override fun onError(utteranceId: String?) { FridayService.resume(this@MainActivity) }
+                })
+            }
         }
 
         settingsButton.setOnClickListener { showSettings() }
@@ -284,7 +294,7 @@ class MainActivity : ComponentActivity() {
         showTyping()
         val startedAt = System.currentTimeMillis()
         lifecycleScope.launch {
-            val reply = buildRouter().ask(systemPrompt(), historyForModel(), phoneTools.specs) { call ->
+            val reply = Assistant.router(settings).ask(Assistant.systemPrompt(), historyForModel(), phoneTools.specs) { call ->
                 val output = phoneTools.run(call)
                 // A plain result is shown as the reply itself; only ones the model must explain appear here.
                 if (!output.final) addBubble(Bubble(Kind.TOOL, output.text, viaTool = true))
@@ -306,7 +316,10 @@ class MainActivity : ComponentActivity() {
             val seconds = (System.currentTimeMillis() - startedAt) / 1000.0
             status.text = reply.provider?.let { "Jawab: $it · ${"%.1f".format(seconds)}s" } ?: getString(R.string.idle)
             setBusy(false)
-            if (speak && ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
+            if (speak && ttsReady) {
+                FridayService.pause(this@MainActivity)
+                tts?.speak(Speaker.speakable(reply.text), TextToSpeech.QUEUE_FLUSH, null, "reply")
+            }
         }
     }
 
@@ -353,10 +366,13 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        FridayService.pause(this)
         startMicPulse()
         setBusy(true)
         status.text = "Sun raha hu..."
-        sr.startListening(intent)
+        // The wake word listener holds the microphone; give it a moment to let go before recognition starts.
+        val wait = if (FridayService.running) 350L else 0L
+        root.postDelayed({ sr.startListening(intent) }, wait)
     }
 
     private val listener = object : RecognitionListener {
@@ -560,6 +576,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopMicPulse() {
+        FridayService.resume(this)
         micPulse?.cancel()
         micPulse = null
         talkButton.scaleX = 1f
@@ -715,6 +732,12 @@ class MainActivity : ComponentActivity() {
                     }
                 })
             }
+            addView(TextView(this@MainActivity).apply {
+                text = "Hey Friday (voice) setup  ▸"
+                setTextColor(this@MainActivity.style.accent)
+                setPadding(0, dp(16f).toInt(), 0, dp(4f).toInt())
+                setOnClickListener { showVoiceSetup() }
+            })
             addView(label("AI models"))
             listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
         }
@@ -742,10 +765,129 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    /** Rebuilt for every question, because "7 baje" or "20 minute mein" only means something next to the current time. */
-    private fun systemPrompt(): String {
-        val now = SimpleDateFormat("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH).format(Date())
-        return "$BASE_PROMPT Current local time: $now (${TimeZone.getDefault().id})."
+    // ---- "Hey Friday": setup, start, log -------------------------------------
+
+    private fun saveWakeFile(uri: Uri) {
+        runCatching {
+            contentResolver.openInputStream(uri)?.use { input ->
+                settings.wakeFile(this).outputStream().use { input.copyTo(it) }
+            } ?: error("file khuli nahi")
+            settings.wakeSource = "custom"
+            status.text = "Wake word file save ho gayi (${settings.wakeFile(this).length() / 1024} KB)"
+        }.onFailure { status.text = "File save nahi hui: ${it.message}" }
+    }
+
+    private fun showVoiceSetup() {
+        fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+        val file = settings.wakeFile(this)
+        val battery = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        val info = TextView(this).apply {
+            text = listOf(
+                "Service: ${if (FridayService.running) "chalu" else "band"}",
+                "AccessKey: ${if (settings.picovoiceKey.isBlank()) "nahi hai" else "hai"}",
+                "Hey Friday file: ${if (file.exists()) "hai (${file.length() / 1024} KB)" else "nahi hai"}",
+                "Mic: ${if (granted(Manifest.permission.RECORD_AUDIO)) "ok" else "permission nahi"}",
+                "Contacts aur Call: ${
+                    if (granted(Manifest.permission.READ_CONTACTS) && granted(Manifest.permission.CALL_PHONE)) "ok"
+                    else "permission nahi"
+                }",
+                "Battery: ${if (battery) "unrestricted" else "restricted (neeche button se hatao)"}",
+            ).joinToString("\n")
+        }
+        val key = EditText(this).apply {
+            hint = "Picovoice AccessKey"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(settings.picovoiceKey)
+        }
+        val source = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+                listOf("Jarvis (built-in, abhi test ke liye)", "Hey Friday (meri .ppn file)"),
+            )
+            setSelection(if (settings.wakeSource == "custom") 1 else 0)
+        }
+        fun button(label: String, onClick: () -> Unit) = Button(this).apply {
+            text = label
+            isAllCaps = false
+            setOnClickListener { onClick() }
+        }
+        fun label(text: String) = TextView(this).apply {
+            this.text = text
+            setPadding(0, dp(12f).toInt(), 0, 0)
+        }
+        val pad = dp(20f).toInt()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(info)
+            addView(label("Picovoice AccessKey")); addView(key)
+            addView(label("Wake word")); addView(source)
+            addView(button("Hey Friday .ppn file chuno") { pickWakeFile.launch(arrayOf("*/*")) })
+            addView(button("Battery restriction hatao") {
+                startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:$packageName"),
+                    ),
+                )
+            })
+            addView(button("Voice log dekho") { showVoiceLog() })
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Hey Friday setup")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setPositiveButton("Chalu karo") { _, _ ->
+                settings.picovoiceKey = key.text.toString()
+                settings.wakeSource = if (source.selectedItemPosition == 1) "custom" else "jarvis"
+                startVoice()
+            }
+            .setNeutralButton("Band karo") { _, _ ->
+                FridayService.stop(this)
+                status.text = "Hey Friday band kar diya"
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun startVoice() {
+        if (settings.picovoiceKey.isBlank()) {
+            status.text = "Pehle Picovoice AccessKey daalo"
+            return
+        }
+        if (settings.wakeSource == "custom" && !settings.wakeFile(this).exists()) {
+            status.text = "Hey Friday file nahi hai: pehle chuno, ya Jarvis wala option lo"
+            return
+        }
+        lifecycleScope.launch {
+            if (!ensurePermission(Manifest.permission.RECORD_AUDIO)) {
+                status.text = "Mic permission ke bina Hey Friday nahi chalega"
+                return@launch
+            }
+            // None of these stop the service from running, but with the screen off nothing can ask for them later:
+            // without them the notification stays hidden and voice cannot look up contacts or place calls.
+            if (Build.VERSION.SDK_INT >= 33) ensurePermission(Manifest.permission.POST_NOTIFICATIONS)
+            ensurePermission(Manifest.permission.READ_CONTACTS)
+            ensurePermission(Manifest.permission.CALL_PHONE)
+            FridayService.start(this@MainActivity)
+            status.text = "Hey Friday chalu ho raha hai... Voice log mein dekho kya hua"
+        }
+    }
+
+    private fun showVoiceLog() {
+        val pad = dp(16f).toInt()
+        val text = TextView(this).apply {
+            text = VoiceLog.read(this@MainActivity)
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setTextIsSelectable(true)
+            setPadding(pad, pad, pad, pad)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Voice log")
+            .setView(ScrollView(this).apply { addView(text) })
+            .setPositiveButton("Theek hai", null)
+            .setNeutralButton("Saaf karo") { _, _ -> VoiceLog.clear(this) }
+            .show()
     }
 
     private companion object {
@@ -754,18 +896,5 @@ class MainActivity : ComponentActivity() {
 
         /** Coming back to the app within this time does not hit the site again. */
         const val UPDATE_CHECK_GAP_MS = 60_000L
-
-        const val BASE_PROMPT =
-            "You are Friday, a personal assistant on the user's Android phone. " +
-                "Replies appear in a small chat bubble and are sometimes read aloud, so keep them " +
-                "short and conversational with no markdown, lists, or emojis. Reply in Hinglish (Hindi " +
-                "written in Roman script mixed with English) unless the user writes pure English. " +
-                "You can set and cancel alarms, start phone calls and switch the flashlight with your tools. " +
-                "When a request is clear, act on it without asking for confirmation. Never guess a missing detail: if the time (including AM or PM), the contact or the alarm " +
-                "is unclear, ask one short question first and wait for the answer. To remove an alarm you " +
-                "need its exact time: if the user does not give it, use get_next_alarm and ask whether that " +
-                "is the one. Say a task is done only if the tool result says it was confirmed, and never without calling the tool in this very reply, even if an earlier answer looked similar; if the " +
-                "result says it could not confirm, say exactly that and tell the user to check. " +
-                "For an alarm like 'in 20 minutes', work out the exact time from the current time below."
     }
 }
