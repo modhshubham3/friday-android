@@ -1,1 +1,1 @@
-{"code":123,"name":"0.123","sha256":"c4603c4330ca60c815949b81693f4f5b126708d935d3defe68265435c6c8ecf7","size":13004040,"notes":"Add a live mic and wake word test, and accept 'friday' without 'hey' [publish]","time":"2026-11-12T11:49:35Z"}
+{"code":124,"name":"0.124","sha256":"f145ec80f2c22a64e1f0307756b9a24b2d1133efe0465e33bd38ec1027fc3e58","size":13004199,"notes":"Bring Hey Friday back after it is stopped: shade tile, resume on app open [publish]","time":"2026-11-12T11:53:34Z"}
