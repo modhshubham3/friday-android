@@ -1,4 +1,4 @@
-package dev.jarvis.assistant.llm
+package dev.friday.assistant.llm
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

@@ -1,4 +1,4 @@
-package dev.jarvis.assistant.llm
+package dev.friday.assistant.llm
 
 /**
  * Failover router: tries providers in order and returns the first success.

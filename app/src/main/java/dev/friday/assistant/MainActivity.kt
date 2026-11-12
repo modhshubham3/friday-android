@@ -1,4 +1,4 @@
-package dev.jarvis.assistant
+package dev.friday.assistant
 
 import android.Manifest
 import android.app.AlertDialog
@@ -17,9 +17,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import dev.jarvis.assistant.llm.GeminiProvider
-import dev.jarvis.assistant.llm.GroqProvider
-import dev.jarvis.assistant.llm.LlmRouter
+import dev.friday.assistant.llm.GeminiProvider
+import dev.friday.assistant.llm.GroqProvider
+import dev.friday.assistant.llm.LlmRouter
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
             status.text = "Is phone pe speech recognition service nahi mili"
             return
         }
-        tts?.stop() // do not let Jarvis hear its own voice
+        tts?.stop() // do not let Friday hear its own voice
         val sr = recognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
             it.setRecognitionListener(listener)
             recognizer = it
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
             val reply = buildRouter().ask(SYSTEM_PROMPT, text)
             // No Android Studio means no logcat, so failures are printed on screen.
             reply.errors.forEach { transcript.append("[error] $it\n") }
-            transcript.append("Jarvis: ${reply.text}\n\n")
+            transcript.append("Friday: ${reply.text}\n\n")
             status.text = reply.provider?.let { "Jawab: $it" } ?: getString(R.string.idle)
             talkButton.isEnabled = true
             if (ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val SYSTEM_PROMPT =
-            "You are Jarvis, a voice assistant on the user's Android phone. " +
+            "You are Friday, a voice assistant on the user's Android phone. " +
                 "Your reply is read aloud by text-to-speech, so answer in one to three short " +
                 "sentences with no markdown, lists, or emojis. Reply in Hinglish (Hindi written " +
                 "in Roman script mixed with English) unless the user speaks pure English."

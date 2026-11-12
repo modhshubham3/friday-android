@@ -1,4 +1,4 @@
-package dev.jarvis.assistant
+package dev.friday.assistant
 
 import android.content.Context
 
@@ -7,7 +7,7 @@ import android.content.Context
  * Stored in the app's private SharedPreferences, so the APK itself holds no keys.
  */
 class Settings(context: Context) {
-    private val prefs = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("friday", Context.MODE_PRIVATE)
 
     var geminiKey: String
         get() = prefs.getString("gemini_key", "").orEmpty()

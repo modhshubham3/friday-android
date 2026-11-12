@@ -1,4 +1,4 @@
-package dev.jarvis.assistant.llm
+package dev.friday.assistant.llm
 
 /**
  * One LLM backend (Gemini, Groq, later Claude/GPT).

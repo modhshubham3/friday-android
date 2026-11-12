@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.jarvis.assistant"
+    namespace = "dev.friday.assistant"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.jarvisvoice.app"
+        applicationId = "io.github.fridayvoice.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 3

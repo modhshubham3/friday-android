@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: jarvis-apk
+          name: friday-apk
           path: app/build/outputs/apk/release/app-release.apk
 
       # Re-publish a "latest" release so the APK is a direct download on the phone.
@@ -34,8 +34,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk jarvis.apk
+          cp app/build/outputs/apk/release/app-release.apk friday.apk
           gh release delete latest --cleanup-tag --yes || true
-          gh release create latest jarvis.apk --prerelease \
+          gh release create latest friday.apk --prerelease \
             --target "$GITHUB_SHA" --title "Latest build" \
             --notes "Built from $GITHUB_SHA"

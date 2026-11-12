@@ -1,4 +1,4 @@
-package dev.jarvis.assistant.llm
+package dev.friday.assistant.llm
 
 import org.json.JSONArray
 import org.json.JSONObject
