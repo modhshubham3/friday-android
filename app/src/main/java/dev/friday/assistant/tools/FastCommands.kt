@@ -75,6 +75,9 @@ object FastCommands {
         val words = text.lowercase().split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.isNotEmpty() }
             .map { HEARD_AS[it] ?: it }
         if (words.isEmpty() || words.size > 6) return null
+        if (("kaun" in words || "kon" in words || "who" in words || "kaunsa" in words) && words.any { it in setOf("call", "phone", "calling") } &&
+            words.none { it in setOf("lagao", "karo", "kar", "laga") } || ("who" in words && "calling" in words)
+        ) return ToolCall("fast-who", "who_calling", JSONObject())
         return torch(words) ?: call(words) ?: inbox(words) ?: digest(words) ?: drive(words)
     }
 

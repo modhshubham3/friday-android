@@ -249,13 +249,14 @@ class FridayService : Service() {
         VoiceLog.add(this, "Wake word suna")
         VoiceState.mode.value = Mode.WAKE
         val english = settings.speakEnglish // whether answers stay English; plain tool results always are
-        // Friday answers to its name out loud; the beep is only the fallback when it cannot speak.
-        val ackAt = SystemClock.elapsedRealtime()
-        val recorded = settings.speakAck && acks.play()
-        if (recorded || (settings.speakAck && speaker.speak(acknowledgement(english)))) {
-            VoiceLog.add(this, "Jawab diya wake word ka (${since(ackAt)}, ${if (recorded) "pehle se record kiya hua" else "live bola"})")
+        // Friday answers "Yes, boss" while already listening, so a one-breath "Friday, call Gauri" is not lost.
+        if (settings.speakAck) {
+            scope.launch {
+                val ackAt = SystemClock.elapsedRealtime()
+                if (acks.play()) VoiceLog.add(this@FridayService, "Jawab diya wake word ka (${since(ackAt)}, parallel)")
+            }
         } else {
-            chime()
+            scope.launch { chime() }
         }
         val tools = PhoneTools(
             this, settings, VoicePrompts(this, listener, speaker, english = true),
@@ -268,7 +269,10 @@ class FridayService : Service() {
             update("Sun rahi hu...")
             VoiceState.mode.value = Mode.LISTENING
             val listenedAt = SystemClock.elapsedRealtime()
-            val heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }
+            var heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }
+            // The recogniser may catch Friday's own "Yes, boss": drop that and the name, listen again if nothing is left.
+            heard = heard?.let(::stripEcho)
+            if (heard.isNullOrBlank() && turn == 0) heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }?.let(::stripEcho)
             if (heard.isNullOrBlank()) {
                 // Stay quiet: a false wake in a quiet room should not make Friday talk to itself.
                 VoiceLog.add(this, "Kuch suna nahi")
@@ -295,6 +299,13 @@ class FridayService : Service() {
             // A question from Friday means an answer is expected, so keep listening without a new wake word.
             if (reply.provider == null || !reply.text.trimEnd().endsWith("?")) return
         }
+    }
+
+    private fun stripEcho(text: String): String {
+        var t = text.trim()
+        val junk = Regex("^(hey\\s+)?friday[,.!?\\s]*|^(yes,?\\s+boss|go ahead|i'?m listening)[,.!?\\s]*", RegexOption.IGNORE_CASE)
+        while (true) { val n = junk.replaceFirst(t, ""); if (n == t) break; t = n }
+        return t.trim()
     }
 
     /** Used only when the recorded phrases are not ready, so it speaks one live. */
