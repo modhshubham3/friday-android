@@ -2,6 +2,7 @@ package dev.friday.assistant
 
 import dev.friday.assistant.llm.GeminiProvider
 import dev.friday.assistant.llm.GroqProvider
+import dev.friday.assistant.llm.LlmProvider
 import dev.friday.assistant.llm.LlmRouter
 import dev.friday.assistant.tools.FastCommands
 import dev.friday.assistant.tools.PhoneTools
