@@ -1,1 +1,1 @@
-{"code":122,"name":"0.122","sha256":"b3eb8fcf4f7414da273b469405a0f869933ee6b0c6ad4d3447c5410763b5d941","size":13004048,"notes":"Show model download progress and errors inside the setup dialog [publish]","time":"2026-11-12T11:40:42Z"}
+{"code":123,"name":"0.123","sha256":"c4603c4330ca60c815949b81693f4f5b126708d935d3defe68265435c6c8ecf7","size":13004040,"notes":"Add a live mic and wake word test, and accept 'friday' without 'hey' [publish]","time":"2026-11-12T11:49:35Z"}
