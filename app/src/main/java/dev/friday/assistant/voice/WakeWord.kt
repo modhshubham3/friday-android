@@ -2,7 +2,11 @@ package dev.friday.assistant.voice
 
 import android.content.Context
 import android.media.AudioFormat
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.AudioRecord
+import android.os.Build
+import dev.friday.assistant.Settings
 import android.media.MediaRecorder
 import org.json.JSONObject
 import org.vosk.LibVosk
@@ -12,6 +16,7 @@ import org.vosk.Recognizer
 import kotlin.math.sqrt
 
 internal const val SAMPLE_RATE = 16_000
+internal const val HEADSET_MIN_LEVEL = 1200
 
 /** The phrase, "friday" alone (people drop the "hey"), or "[unk]" for everything else, so ordinary talk is not forced into a match. */
 internal const val WAKE_GRAMMAR = "[\"hey friday\", \"friday\", \"[unk]\"]"
@@ -83,6 +88,16 @@ class WakeWord(private val context: Context) {
         thread = null
     }
 
+    /** The earphone's own microphone, if one is connected: close to the mouth, so far better than the phone's. */
+    private fun headsetMic(): AudioDeviceInfo? {
+        val audio = context.getSystemService(AudioManager::class.java)
+        val wanted = setOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, 26,
+        )
+        return audio.getDevices(AudioManager.GET_DEVICES_INPUTS).firstOrNull { it.type in wanted }
+    }
+
     private fun listenLoop(logLevels: Boolean) {
         var recorder: AudioRecord? = null
         var recognizer: Recognizer? = null
@@ -102,6 +117,17 @@ class WakeWord(private val context: Context) {
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
                 maxOf(minBuffer, chunk.size * 2 * 4),
             )
+            val headset = headsetMic()
+            if (headset != null) {
+                runCatching { recorder.preferredDevice = headset }
+                if (headset.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || headset.type == 26 /* BLE headset */) {
+                    // A Bluetooth mic only works while the earbuds are in call mode, so drive mode switches them over.
+                    if (Build.VERSION.SDK_INT >= 31 && Settings(context).driveMode) {
+                        runCatching { context.getSystemService(AudioManager::class.java).setCommunicationDevice(headset) }
+                    }
+                }
+            }
+            VoiceLog.add(context, "Mic: ${headset?.let { "earphone (type ${it.type})" } ?: "phone ka mic"}")
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
                 onProblem?.invoke("Mic khul nahi paya (koi aur app use kar rahi hai?)")
                 return
@@ -109,6 +135,7 @@ class WakeWord(private val context: Context) {
             recorder.startRecording()
             var chunks = 0
             var peak = 0
+            val recent = ArrayDeque<Int>() // loudness of the last ~1.5 s: the wearer's own voice is much louder than bystanders
 
             while (!stopRequested) {
                 val n = recorder.read(chunk, 0, chunk.size)
@@ -118,7 +145,10 @@ class WakeWord(private val context: Context) {
                 }
                 if (n == 0) continue
                 // Proof in the log that the microphone is really delivering sound, and how loud.
-                peak = maxOf(peak, loudness(chunk, n))
+                val level = loudness(chunk, n)
+                recent.addLast(level)
+                if (recent.size > 15) recent.removeFirst()
+                peak = maxOf(peak, level)
                 chunks++
                 if (logLevels && (chunks == 50 || chunks == 300)) {
                     VoiceLog.add(context, "Mic chal raha hai: ${chunks / 10} second mein sabse tez level $peak")
@@ -127,7 +157,15 @@ class WakeWord(private val context: Context) {
                 val json = if (recognizer.acceptWaveForm(chunk, n)) recognizer.result else recognizer.partialResult
                 val heard = JSONObject(json).let { it.optString("text").ifEmpty { it.optString("partial") } }
                 if ("friday" in heard) {
-                    VoiceLog.add(context, "Wake word pehchana: \"$heard\"")
+                    val voice = recent.maxOrNull() ?: 0
+                    // With an earphone mic at the mouth, a quiet "friday" is somebody else nearby: ignore it.
+                    if (headset != null && voice < HEADSET_MIN_LEVEL) {
+                        VoiceLog.add(context, "Dhimi awaaz ignore ki (level $voice): \"$heard\"")
+                        recognizer.reset()
+                        recent.clear()
+                        continue
+                    }
+                    VoiceLog.add(context, "Wake word pehchana: \"$heard\" (level $voice)")
                     onWake?.invoke()
                     return // the conversation takes over the microphone; resume() restarts this afterwards
                 }

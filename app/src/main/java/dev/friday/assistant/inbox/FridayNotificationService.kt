@@ -15,7 +15,7 @@ class FridayNotificationService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val context = applicationContext
-        runCatching { CallerInfo.onPosted(sbn) }
+        runCatching { CallerInfo.onPosted(context, sbn) }
         scope.launch {
             runCatching { NotificationParser.parse(context, sbn).forEach { Inbox.ingest(context, it) } }
                 .onFailure { VoiceLog.add(context, "Inbox error: ${it.message ?: it.javaClass.simpleName}") }

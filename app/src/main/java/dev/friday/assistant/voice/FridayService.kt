@@ -83,6 +83,17 @@ class FridayService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_CALL -> {
+                val who = intent.getStringExtra("who").orEmpty()
+                if (running && who.isNotBlank() && !busy) {
+                    session {
+                        VoiceLog.add(this, "Call aa raha hai: $who")
+                        VoiceState.mode.value = Mode.SPEAKING
+                        speaker.speak("$who is calling.")
+                    }
+                }
+                return START_STICKY
+            }
             ACTION_ANNOUNCE -> {
                 if (!running) {
                     stopSelf()
@@ -353,6 +364,12 @@ class FridayService : Service() {
         private const val ACTION_PAUSE = "dev.friday.assistant.PAUSE"
         private const val ACTION_RESUME = "dev.friday.assistant.RESUME"
         private const val ACTION_ANNOUNCE = "dev.friday.assistant.ANNOUNCE"
+        private const val ACTION_CALL = "dev.friday.assistant.CALL"
+
+        /** A call is ringing in drive mode: say who it is. */
+        fun announceCall(context: Context, who: String) {
+            if (running) context.startService(Intent(context, FridayService::class.java).setAction(ACTION_CALL).putExtra("who", who))
+        }
 
         /** Longest wait for the user to start speaking after the beep. */
         private const val LISTEN_MS = 12_000L
