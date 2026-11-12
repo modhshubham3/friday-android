@@ -1,1 +1,1 @@
-{"code":109,"name":"0.109","sha256":"101b47435537a1a273cb2c190441fff14820b2d4cc12b976436d748cfdefa727","size":2523670,"notes":"Retry a provider twice when it answers with a server error","time":"2026-11-12T07:43:14Z"}
+{"code":110,"name":"0.110","sha256":"bf3c6e6d93302d20dfbbae8eeba8436e55d31a9f7afc5b9e005a942477dfb0f2","size":2525075,"notes":"Try a chain of Gemini models instead of one","time":"2026-11-12T07:48:39Z"}
