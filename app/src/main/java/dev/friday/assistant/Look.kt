@@ -37,6 +37,7 @@ data class Style(
     val lightFont: Boolean,
     val lightBars: Boolean,     // true on a light background: dark status-bar icons
     val lively: Boolean,        // bigger, bouncier motion
+    val aurora: Float,          // strength of the drifting light behind the chat; 0 is none
     val scale: Float,
 )
 
@@ -81,20 +82,20 @@ object Look {
                 bg = c("#000000"), surface = c("#1c1c1e"), line = c("#38383a"), ink = c("#ffffff"),
                 mute = c("#8e8e93"), accent = c("#0a84ff"), onAccent = c("#ffffff"),
                 bubbleRadiusDp = 20f, plainReplies = false, lightFont = false, lightBars = false,
-                lively = false, scale = scale,
+                lively = false, aurora = 0f, scale = scale,
             )
             "iosl" -> Style(
                 bg = c("#f2f2f7"), surface = c("#ffffff"), line = c("#d1d1d6"), ink = c("#000000"),
                 mute = c("#6c6c70"), accent = c("#007aff"), onAccent = c("#ffffff"),
                 bubbleRadiusDp = 20f, plainReplies = false, lightFont = false, lightBars = true,
-                lively = false, scale = scale,
+                lively = false, aurora = 0f, scale = scale,
             )
             else -> Style(
                 bg = p.bg, surface = p.surface, line = p.line, ink = p.ink, mute = p.mute,
                 accent = p.accent, onAccent = p.bg,
                 bubbleRadiusDp = if (lookId == "min") 12f else 18f,
                 plainReplies = lookId == "min", lightFont = lookId == "min", lightBars = false,
-                lively = lookId == "anim", scale = scale,
+                lively = lookId == "anim", aurora = when (lookId) { "anim" -> 0.26f; "min" -> 0f; else -> 0.14f }, scale = scale,
             )
         }
     }

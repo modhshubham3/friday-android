@@ -46,7 +46,7 @@ class Listener(private val context: Context, private val settings: Settings) {
 
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onRmsChanged(rmsdB: Float) = VoiceState.hear(rmsdB)
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
             override fun onPartialResults(partialResults: Bundle?) {}

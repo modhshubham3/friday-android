@@ -180,6 +180,8 @@ class FridayService : Service() {
             } finally {
                 audio.abandonAudioFocusRequest(focus)
                 busy = false
+                VoiceState.mode.value = Mode.IDLE
+                VoiceState.level.value = 0f
                 if (!paused) wake.resume()
                 update("Bolo")
             }
@@ -188,6 +190,7 @@ class FridayService : Service() {
 
     private suspend fun converse() {
         VoiceLog.add(this, "Wake word suna")
+        VoiceState.mode.value = Mode.WAKE
         val english = settings.speakEnglish // whether answers stay English; plain tool results always are
         // Friday answers to its name out loud; the beep is only the fallback when it cannot speak.
         val ackAt = SystemClock.elapsedRealtime()
@@ -206,6 +209,7 @@ class FridayService : Service() {
 
         repeat(MAX_TURNS) { turn ->
             update("Sun rahi hu...")
+            VoiceState.mode.value = Mode.LISTENING
             val listenedAt = SystemClock.elapsedRealtime()
             val heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }
             if (heard.isNullOrBlank()) {
@@ -217,6 +221,7 @@ class FridayService : Service() {
             history += ChatMessage(fromUser = true, text = heard)
 
             update("Soch rahi hu...")
+            VoiceState.mode.value = Mode.THINKING
             val thoughtAt = SystemClock.elapsedRealtime()
             val reply = Assistant.fastReply(heard, tools) ?: Assistant.router(settings).ask(
                 Assistant.systemPrompt(spoken = true, english = english), history.takeLast(MAX_HISTORY), tools.specs,
@@ -226,6 +231,7 @@ class FridayService : Service() {
             reply.errors.forEach { VoiceLog.add(this, "Error: $it") }
             VoiceLog.add(this, "Friday (${since(thoughtAt)}, ${reply.provider ?: "koi nahi"}): ${reply.text}")
             update("Bol rahi hu...")
+            VoiceState.mode.value = Mode.SPEAKING
             speaker.speak(reply.text)
 
             history += ChatMessage(fromUser = false, text = reply.text)

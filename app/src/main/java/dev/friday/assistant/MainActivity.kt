@@ -1,6 +1,7 @@
 package dev.friday.assistant
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
@@ -9,6 +10,9 @@ import android.app.StatusBarManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.Icon
@@ -25,7 +29,9 @@ import android.text.InputType
 import android.text.format.DateUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
@@ -42,9 +48,12 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.animation.doOnEnd
 import androidx.core.view.WindowCompat
 import androidx.core.widget.doOnTextChanged
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.tools.PhoneTools
 import dev.friday.assistant.tools.UserPrompts
@@ -54,7 +63,11 @@ import dev.friday.assistant.voice.Listener
 import dev.friday.assistant.voice.ModelStore
 import dev.friday.assistant.voice.WakeTest
 import dev.friday.assistant.voice.Speaker
+import dev.friday.assistant.ui.AuroraView
+import dev.friday.assistant.ui.OrbView
+import dev.friday.assistant.voice.Mode
 import dev.friday.assistant.voice.VoiceLog
+import dev.friday.assistant.voice.VoiceState
 import dev.friday.assistant.voice.Voices
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -72,6 +85,13 @@ import kotlin.coroutines.resume
 class MainActivity : ComponentActivity() {
 
     private lateinit var root: View
+    private lateinit var aurora: AuroraView
+    private lateinit var orbMain: OrbView
+    private lateinit var orbHeader: OrbView
+    private lateinit var emptyState: View
+    private lateinit var greeting: TextView
+    private lateinit var chips: LinearLayout
+    private var shimmer: ValueAnimator? = null
     private lateinit var title: TextView
     private lateinit var status: TextView
     private lateinit var divider: View
@@ -185,6 +205,23 @@ class MainActivity : ComponentActivity() {
         chatsButton = findViewById(R.id.chatsButton)
         newChatButton = findViewById(R.id.newChatButton)
         settingsButton = findViewById(R.id.settingsButton)
+        aurora = findViewById(R.id.aurora)
+        orbMain = findViewById(R.id.orbMain)
+        orbHeader = findViewById(R.id.orbHeader)
+        emptyState = findViewById(R.id.emptyState)
+        greeting = findViewById(R.id.greeting)
+        chips = findViewById(R.id.chips)
+        pressable(chatsButton, newChatButton, settingsButton, sendButton, orbHeader, orbMain)
+        // The orbs are a button too: tap Friday to talk to Friday.
+        orbHeader.setOnClickListener { talkButton.performClick() }
+        orbMain.setOnClickListener { talkButton.performClick() }
+        // Whatever Friday is doing, whether started here or by "Hey Friday", the orbs show it.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { VoiceState.mode.collect { orbMain.mode = it; orbHeader.mode = it } }
+                launch { VoiceState.level.collect { orbMain.level = it; orbHeader.level = it } }
+            }
+        }
 
         tts = TextToSpeech(this) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
@@ -193,10 +230,16 @@ class MainActivity : ComponentActivity() {
                 // While Friday speaks, the wake word listener sits out, or it hears the name in Friday's own voice.
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
-                    override fun onDone(utteranceId: String?) { FridayService.resume(this@MainActivity) }
+                    override fun onDone(utteranceId: String?) {
+                        VoiceState.mode.value = Mode.IDLE
+                        FridayService.resume(this@MainActivity)
+                    }
 
                     @Deprecated("Required by the base class")
-                    override fun onError(utteranceId: String?) { FridayService.resume(this@MainActivity) }
+                    override fun onError(utteranceId: String?) {
+                        VoiceState.mode.value = Mode.IDLE
+                        FridayService.resume(this@MainActivity)
+                    }
                 })
             }
         }
@@ -219,8 +262,14 @@ class MainActivity : ComponentActivity() {
         openChat(chats.list().firstOrNull()?.id)
     }
 
+    override fun onPause() {
+        shimmer?.pause()
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        shimmer?.resume()
         val update = pendingUpdate
         if (update == null) checkForUpdate()
         else if (Updater.canInstall(this)) startUpdate(update)
@@ -242,6 +291,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        shimmer?.cancel()
         stopMicPulse()
         stopTyping()
         recognizer?.destroy()
@@ -254,6 +304,7 @@ class MainActivity : ComponentActivity() {
     /** Shows the saved chat with [id], or starts an empty one when [id] is null. */
     private fun openChat(id: String?) {
         tts?.stop()
+        greeting.text = "" // so a new chat greets again
         bubbles.clear()
         if (id == null) {
             chatId = chats.newId()
@@ -316,6 +367,7 @@ class MainActivity : ComponentActivity() {
         saveChat()
         status.text = "Soch rahi hu..."
         setBusy(true)
+        VoiceState.mode.value = Mode.THINKING
         showTyping()
         val startedAt = System.currentTimeMillis()
         lifecycleScope.launch {
@@ -346,6 +398,7 @@ class MainActivity : ComponentActivity() {
             val seconds = (System.currentTimeMillis() - startedAt) / 1000.0
             status.text = reply.provider?.let { "Jawab: $it · ${"%.1f".format(seconds)}s" } ?: getString(R.string.idle)
             setBusy(false)
+            VoiceState.mode.value = if (speak && ttsReady) Mode.SPEAKING else Mode.IDLE
             if (speak && ttsReady) {
                 FridayService.pause(this@MainActivity)
                 tts?.let { Voices.apply(it, settings, reply.text) }
@@ -397,6 +450,7 @@ class MainActivity : ComponentActivity() {
         FridayService.pause(this)
         startMicPulse()
         setBusy(true)
+        VoiceState.mode.value = Mode.LISTENING
         status.text = "Sun rahi hu..."
         // The wake word listener holds the microphone; give it a moment to let go before recognition starts.
         val wait = if (FridayService.running) 350L else 0L
@@ -431,7 +485,7 @@ class MainActivity : ComponentActivity() {
 
         override fun onReadyForSpeech(params: Bundle?) {}
         override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onRmsChanged(rmsdB: Float) = VoiceState.hear(rmsdB)
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() { status.text = "Samajh rahi hu..." }
         override fun onPartialResults(partialResults: Bundle?) {}
@@ -479,6 +533,7 @@ class MainActivity : ComponentActivity() {
         sendButton.setColorFilter(s.onAccent)
         paintMic(listening = micPulse != null)
 
+        applyFx(s)
         renderBubbles()
     }
 
@@ -490,6 +545,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderBubbles() {
+        val empty = bubbles.isEmpty()
+        emptyState.visibility = if (empty) View.VISIBLE else View.GONE
+        emptyState.alpha = 1f
+        if (empty && greeting.text.isEmpty()) typewrite(greeting, greetingLine())
         messages.removeAllViews()
         bubbles.forEach { messages.addView(bubbleView(it)) }
         typingView?.let { messages.addView(it) }
@@ -498,7 +557,8 @@ class MainActivity : ComponentActivity() {
 
     private fun addBubble(bubble: Bubble) {
         bubbles += bubble
-        val view = bubbleView(bubble)
+        updateEmptyState()
+        val view = bubbleView(bubble, typewriter = true)
         // Keep the typing dots at the very bottom while a reply is still on its way.
         messages.addView(view, if (typingView != null) messages.childCount - 1 else messages.childCount)
         animateIn(view, fromRight = bubble.kind == Kind.USER)
@@ -515,11 +575,11 @@ class MainActivity : ComponentActivity() {
         bottomMargin = dp(8f).toInt()
     }
 
-    private fun bubbleView(b: Bubble): View {
+    private fun bubbleView(b: Bubble, typewriter: Boolean = false): View {
         val s = style
         val padH = dp(14f).toInt()
         val padV = dp(10f).toInt()
-        return TextView(this).apply {
+        val view = TextView(this).apply {
             text = b.text
             typeface = bodyFont()
             setTextIsSelectable(true)
@@ -560,6 +620,121 @@ class MainActivity : ComponentActivity() {
                 }
             }
             layoutParams = bubbleParams(alignEnd = b.kind == Kind.USER)
+        }
+        // Friday's words appear letter by letter, as if being written.
+        if (typewriter && (b.kind == Kind.FRIDAY || b.kind == Kind.TOOL)) typewrite(view, b.text)
+        return view
+    }
+
+    // ---- Alive: orbs, drifting light, greeting, writing effect -----------------
+
+    /** Light, colour and suggestions that depend on the chosen look. */
+    private fun applyFx(s: Style) {
+        aurora.configure(s.accent, s.aurora)
+        orbMain.accent = s.accent
+        orbHeader.accent = s.accent
+        greeting.setTextColor(s.ink)
+        greeting.sp(18f)
+        greeting.typeface = bodyFont()
+        chips.removeAllViews()
+        listOf("Torch on karo", "Agla alarm kab hai?", "Ek joke sunao").forEach { chips.addView(chip(it, s)) }
+        shimmerTitle(s)
+    }
+
+    private fun greetingLine(): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val part = when (hour) {
+            in 5..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            else -> "Good evening"
+        }
+        return "$part, boss.\nMain Friday hu. Kya karna hai?"
+    }
+
+    /** The big orb and the suggestions fade away once a chat begins, and return for a new one. */
+    private fun updateEmptyState() {
+        val show = bubbles.isEmpty()
+        if (show == (emptyState.visibility == View.VISIBLE)) return
+        if (show) {
+            emptyState.visibility = View.VISIBLE
+            emptyState.alpha = 0f
+            emptyState.animate().alpha(1f).setDuration(350).start()
+            typewrite(greeting, greetingLine())
+        } else {
+            emptyState.animate().alpha(0f).setDuration(220).withEndAction { emptyState.visibility = View.GONE }.start()
+        }
+    }
+
+    private fun chip(label: String, s: Style) = TextView(this).apply {
+        text = label
+        setTextColor(s.ink)
+        sp(14f)
+        typeface = bodyFont()
+        gravity = Gravity.CENTER
+        setPadding(dp(18f).toInt(), dp(10f).toInt(), dp(18f).toInt(), dp(10f).toInt())
+        background = rounded(s.surface, 22f, s.accent)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(8f).toInt() }
+        setOnClickListener { if (!busy) onHeard(label, speak = false) }
+        pressable(this)
+    }
+
+    /** Shows [full] one letter at a time. With animations turned off in the phone's settings it just appears. */
+    private fun typewrite(view: TextView, full: String) {
+        (view.tag as? ValueAnimator)?.cancel()
+        if (!ValueAnimator.areAnimatorsEnabled() || full.length < 2) {
+            view.text = full
+            return
+        }
+        view.text = ""
+        view.tag = ValueAnimator.ofInt(0, full.length).apply {
+            duration = (full.length * 16L).coerceIn(250L, 1_500L)
+            interpolator = LinearInterpolator()
+            addUpdateListener { view.text = full.substring(0, it.animatedValue as Int) }
+            doOnEnd { view.text = full }
+            start()
+        }
+    }
+
+    /** A band of colour sweeps slowly across the name in the header. */
+    private fun shimmerTitle(s: Style) {
+        shimmer?.cancel()
+        title.paint.shader = null
+        if (!ValueAnimator.areAnimatorsEnabled() || s.lightFont) return // Minimal stays plain
+        title.post {
+            val width = title.width.toFloat().coerceAtLeast(1f)
+            val shader = LinearGradient(
+                0f, 0f, width, 0f, intArrayOf(s.ink, s.accent, s.ink), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.MIRROR,
+            )
+            title.paint.shader = shader
+            val matrix = Matrix()
+            shimmer = ValueAnimator.ofFloat(0f, width * 2f).apply {
+                duration = 4_200
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener {
+                    matrix.setTranslate(it.animatedValue as Float, 0f)
+                    shader.setLocalMatrix(matrix)
+                    title.invalidate()
+                }
+                start()
+            }
+        }
+    }
+
+    /** Buttons shrink a little under the finger and spring back. Returns false so the tap itself still works. */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun pressable(vararg views: View) {
+        views.forEach { v ->
+            v.setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(80).start()
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                        view.animate().scaleX(1f).scaleY(1f).setDuration(160).setInterpolator(OvershootInterpolator(2.2f)).start()
+                }
+                false
+            }
         }
     }
 
@@ -605,6 +780,8 @@ class MainActivity : ComponentActivity() {
 
     private fun stopMicPulse() {
         FridayService.resume(this)
+        if (VoiceState.mode.value == Mode.LISTENING) VoiceState.mode.value = Mode.IDLE
+        VoiceState.level.value = 0f
         micPulse?.cancel()
         micPulse = null
         talkButton.scaleX = 1f
