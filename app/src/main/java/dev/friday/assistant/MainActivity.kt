@@ -32,6 +32,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.lifecycleScope
 import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.llm.GeminiProvider
@@ -163,6 +164,8 @@ class MainActivity : ComponentActivity() {
         root = findViewById(R.id.root)
         title = findViewById(R.id.title)
         status = findViewById(R.id.status)
+        // The line only takes space while it has something to say (a reply time, an error, a download).
+        status.doOnTextChanged { text, _, _, _ -> status.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE }
         divider = findViewById(R.id.divider)
         scroll = findViewById(R.id.scroll)
         messages = findViewById(R.id.messages)
