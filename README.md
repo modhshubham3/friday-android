@@ -9,6 +9,7 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 - [x] In-app updates
 - [x] Five looks (Standard, Animated, Minimal, iOS Dark, iOS Light), icon buttons with motion
 - [x] Chats saved on the phone, with a list of old chats
+- [x] Tool calling: set an alarm, call a contact (opens the dialer), flashlight
 - [ ] Week 2: tool calling (alarm, call, flashlight, music)
 - [ ] Week 3: "Friday" wake word + foreground service
 - [ ] Week 4: lock screen + battery-optimization handling
@@ -27,6 +28,7 @@ Every push to `main` builds the APK in GitHub Actions and commits it to `site/`,
 - `MainActivity.kt` - UI, SpeechRecognizer, TextToSpeech
 - `Settings.kt` - API keys, model names, theme and text size saved on the phone
 - `Look.kt` - colour themes, looks and text sizes, combined into one Style
+- `tools/PhoneTools.kt` - what Friday can do on the phone: alarm, call, flashlight
 - `ChatStore.kt` - saved chats, one JSON file each
 - `Updater.kt` - checks the site for a newer build, downloads and verifies it
 - `llm/LlmProvider.kt` - interface every model backend implements

@@ -11,23 +11,80 @@ class GroqProvider(
     override val name = "Groq"
     override val isConfigured get() = apiKey.isNotBlank()
 
-    override suspend fun chat(systemPrompt: String, history: List<ChatMessage>): Result<String> {
-        val messages = JSONArray()
-            .put(JSONObject().put("role", "system").put("content", systemPrompt))
-        history.forEach {
-            messages.put(JSONObject().put("role", if (it.fromUser) "user" else "assistant").put("content", it.text))
+    override suspend fun chat(
+        systemPrompt: String,
+        items: List<ChatItem>,
+        tools: List<ToolSpec>,
+    ): Result<ModelReply> {
+        val body = JSONObject().put("model", model).put("messages", messages(systemPrompt, items))
+        if (tools.isNotEmpty()) {
+            val specs = JSONArray()
+            tools.forEach {
+                specs.put(
+                    JSONObject().put("type", "function").put(
+                        "function",
+                        JSONObject().put("name", it.name).put("description", it.description).put("parameters", it.parameters),
+                    ),
+                )
+            }
+            body.put("tools", specs)
         }
-        val body = JSONObject().put("model", model).put("messages", messages).toString()
 
         return postJson(
             "https://api.groq.com/openai/v1/chat/completions",
             mapOf("Authorization" to "Bearer $apiKey"),
-            body,
+            body.toString(),
         ).mapCatching { raw ->
-            JSONObject(raw)
-                .getJSONArray("choices").getJSONObject(0)
-                .getJSONObject("message").getString("content")
-                .trim().ifEmpty { error("Groq returned an empty reply") }
+            val message = JSONObject(raw).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+            // "content" is JSON null when the model only calls tools, and optString would turn that into "null".
+            val text = if (message.isNull("content")) "" else message.getString("content").trim()
+            val calls = mutableListOf<ToolCall>()
+            val arr = message.optJSONArray("tool_calls")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val c = arr.getJSONObject(i)
+                    val fn = c.getJSONObject("function")
+                    calls += ToolCall(
+                        id = c.optString("id").ifEmpty { "call_$i" },
+                        name = fn.getString("name"),
+                        args = runCatching { JSONObject(fn.optString("arguments", "{}")) }.getOrDefault(JSONObject()),
+                    )
+                }
+            }
+            if (text.isEmpty() && calls.isEmpty()) error("Groq returned an empty reply")
+            ModelReply(text, calls)
         }
+    }
+
+    private fun messages(systemPrompt: String, items: List<ChatItem>): JSONArray {
+        val out = JSONArray().put(JSONObject().put("role", "system").put("content", systemPrompt))
+        var i = 0
+        while (i < items.size) {
+            when (val item = items[i]) {
+                is ChatMessage -> {
+                    out.put(JSONObject().put("role", if (item.fromUser) "user" else "assistant").put("content", item.text))
+                    i++
+                }
+                is ToolCall -> {
+                    val calls = JSONArray()
+                    while (i < items.size && items[i] is ToolCall) {
+                        val c = items[i] as ToolCall
+                        calls.put(
+                            JSONObject().put("id", c.id).put("type", "function").put(
+                                "function",
+                                JSONObject().put("name", c.name).put("arguments", c.args.toString()),
+                            ),
+                        )
+                        i++
+                    }
+                    out.put(JSONObject().put("role", "assistant").put("content", JSONObject.NULL).put("tool_calls", calls))
+                }
+                is ToolResult -> {
+                    out.put(JSONObject().put("role", "tool").put("tool_call_id", item.id).put("content", item.output))
+                    i++
+                }
+            }
+        }
+        return out
     }
 }

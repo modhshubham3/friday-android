@@ -37,9 +37,14 @@ import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.llm.GeminiProvider
 import dev.friday.assistant.llm.GroqProvider
 import dev.friday.assistant.llm.LlmRouter
+import dev.friday.assistant.tools.PhoneTools
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * The chat screen. A question arrives typed or spoken (SpeechRecognizer), goes to
@@ -61,8 +66,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var newChatButton: ImageView
     private lateinit var settingsButton: ImageView
 
-    /** What a bubble on screen holds. Only USER and FRIDAY are saved and sent to the model. */
-    private enum class Kind { USER, FRIDAY, ERROR }
+    /** What a bubble on screen holds. Only USER and FRIDAY are saved and sent to the model; TOOL lines show what Friday did. */
+    private enum class Kind { USER, FRIDAY, ERROR, TOOL }
     private data class Bubble(val kind: Kind, val text: String)
 
     /** Everything on screen for the open chat, oldest first. */
@@ -71,6 +76,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var settings: Settings
     private lateinit var chats: ChatStore
+    private lateinit var phoneTools: PhoneTools
     private var chatId = ""
     private lateinit var style: Style
 
@@ -93,6 +99,23 @@ class MainActivity : ComponentActivity() {
     private var updateDialogShowing = false
     private var lastUpdateCheck = 0L
 
+    private var contactsAnswer: CompletableDeferred<Boolean>? = null
+    private val askContacts =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            contactsAnswer?.complete(granted)
+        }
+
+    /** Suspends the running tool until the user answers the permission prompt. */
+    private suspend fun ensureContacts(): Boolean {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) return true
+        val answer = CompletableDeferred<Boolean>()
+        contactsAnswer = answer
+        askContacts.launch(Manifest.permission.READ_CONTACTS)
+        return answer.await()
+    }
+
     private val askMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startListening() else status.text = "Mic permission ke bina kaam nahi chalega"
@@ -103,6 +126,7 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
         settings = Settings(this)
         chats = ChatStore(this)
+        phoneTools = PhoneTools(this) { ensureContacts() }
 
         root = findViewById(R.id.root)
         title = findViewById(R.id.title)
@@ -172,7 +196,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveChat() {
-        chats.save(chatId, bubbles.filter { it.kind != Kind.ERROR }.map { ChatMessage(it.kind == Kind.USER, it.text) })
+        chats.save(chatId, bubbles.filter { it.kind == Kind.USER || it.kind == Kind.FRIDAY }.map { ChatMessage(it.kind == Kind.USER, it.text) })
     }
 
     private fun showChats() {
@@ -215,7 +239,11 @@ class MainActivity : ComponentActivity() {
         setBusy(true)
         showTyping()
         lifecycleScope.launch {
-            val reply = buildRouter().ask(SYSTEM_PROMPT, historyForModel())
+            val reply = buildRouter().ask(systemPrompt(), historyForModel(), phoneTools.specs) { call ->
+                val output = phoneTools.run(call)
+                addBubble(Bubble(Kind.TOOL, output))
+                output
+            }
             stopTyping()
             // No Android Studio means no logcat, so failures are shown on screen.
             reply.errors.forEach { addBubble(Bubble(Kind.ERROR, it)) }
@@ -233,7 +261,7 @@ class MainActivity : ComponentActivity() {
      * user turn, and only the most recent turns so requests stay small and cheap.
      */
     private fun historyForModel(): List<ChatMessage> =
-        bubbles.filter { it.kind != Kind.ERROR }
+        bubbles.filter { it.kind == Kind.USER || it.kind == Kind.FRIDAY }
             .map { ChatMessage(fromUser = it.kind == Kind.USER, text = it.text) }
             // A failed question leaves two user turns in a row; keep only the newer one.
             .fold(mutableListOf<ChatMessage>()) { acc, m ->
@@ -369,7 +397,8 @@ class MainActivity : ComponentActivity() {
     private fun addBubble(bubble: Bubble) {
         bubbles += bubble
         val view = bubbleView(bubble)
-        messages.addView(view)
+        // Keep the typing dots at the very bottom while a reply is still on its way.
+        messages.addView(view, if (typingView != null) messages.childCount - 1 else messages.childCount)
         animateIn(view, fromRight = bubble.kind == Kind.USER)
         scrollToEnd()
     }
@@ -419,6 +448,12 @@ class MainActivity : ComponentActivity() {
                 Kind.ERROR -> {
                     background = rounded(s.bg, 12f, s.line)
                     setTextColor(s.mute)
+                    sp(12f)
+                }
+                Kind.TOOL -> {
+                    text = "⚙ ${b.text}"
+                    background = rounded(s.bg, 12f, s.accent)
+                    setTextColor(s.accent)
                     sp(12f)
                 }
             }
@@ -627,6 +662,12 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    /** Rebuilt for every question, because "7 baje" or "20 minute mein" only means something next to the current time. */
+    private fun systemPrompt(): String {
+        val now = SimpleDateFormat("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH).format(Date())
+        return "$BASE_PROMPT Current local time: $now (${TimeZone.getDefault().id})."
+    }
+
     private companion object {
         /** Turns sent to the model per request; older ones are dropped from the request, not the screen. */
         const val MAX_HISTORY = 20
@@ -634,10 +675,15 @@ class MainActivity : ComponentActivity() {
         /** Coming back to the app within this time does not hit the site again. */
         const val UPDATE_CHECK_GAP_MS = 60_000L
 
-        const val SYSTEM_PROMPT =
+        const val BASE_PROMPT =
             "You are Friday, a personal assistant on the user's Android phone. " +
                 "Replies appear in a small chat bubble and are sometimes read aloud, so keep them " +
                 "short and conversational with no markdown, lists, or emojis. Reply in Hinglish (Hindi " +
-                "written in Roman script mixed with English) unless the user writes pure English."
+                "written in Roman script mixed with English) unless the user writes pure English. " +
+                "You can set alarms, start phone calls and switch the flashlight with your tools. " +
+                "Use a tool whenever the user asks for one of those things, and only say it is done " +
+                "after the tool result says so. If a tool reports an error or asks you to check with " +
+                "the user, relay that plainly. For an alarm like 'in 20 minutes', work out the exact " +
+                "time from the current time below."
     }
 }
