@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
 
     /** What a bubble on screen holds. Only USER and FRIDAY are saved and sent to the model; TOOL lines show what Friday did. */
     private enum class Kind { USER, FRIDAY, ERROR, TOOL }
-    private data class Bubble(val kind: Kind, val text: String, val viaTool: Boolean = false)
+    private data class Bubble(val kind: Kind, val text: String, val viaTool: Boolean = false, val at: Long = System.currentTimeMillis())
 
     /** Everything on screen for the open chat, oldest first. */
     private val bubbles = mutableListOf<Bubble>()
@@ -335,7 +335,7 @@ class MainActivity : ComponentActivity() {
             chatId = id
             chats.load(id).forEach {
                 val kind = when (it.kind) { "user" -> Kind.USER; "tool" -> Kind.TOOL; else -> Kind.FRIDAY }
-                bubbles += Bubble(kind, it.text, it.viaTool)
+                bubbles += Bubble(kind, it.text, it.viaTool, it.at)
             }
         }
         status.text = getString(R.string.idle)
@@ -346,7 +346,7 @@ class MainActivity : ComponentActivity() {
         chats.save(
             chatId,
             bubbles.filter { it.kind != Kind.ERROR }.map {
-                StoredBubble(it.kind.name.lowercase(), it.text, it.viaTool)
+                StoredBubble(it.kind.name.lowercase(), it.text, it.viaTool, it.at)
             },
         )
     }
@@ -642,11 +642,30 @@ class MainActivity : ComponentActivity() {
                     sp(12f)
                 }
             }
-            layoutParams = bubbleParams(alignEnd = b.kind == Kind.USER)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
         }
         // Friday's words appear letter by letter, as if being written.
         if (typewriter && (b.kind == Kind.FRIDAY || b.kind == Kind.TOOL)) typewrite(view, b.text)
-        return view
+        // The time sits under each message, so an old chat can be told from a new one at a glance.
+        val stamp = TextView(this).apply {
+            text = if (b.at == 0L) "purana" else {
+                val fmt = if (android.text.format.DateUtils.isToday(b.at)) "HH:mm" else "d MMM, HH:mm"
+                java.text.SimpleDateFormat(fmt, java.util.Locale.ENGLISH).format(java.util.Date(b.at))
+            }
+            typeface = bodyFont()
+            setTextColor(s.mute)
+            sp(10f)
+            setPadding(dp(6f).toInt(), dp(2f).toInt(), dp(6f).toInt(), 0)
+            gravity = if (b.kind == Kind.USER) Gravity.END else Gravity.START
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(view)
+            addView(stamp)
+            layoutParams = bubbleParams(alignEnd = b.kind == Kind.USER)
+        }
     }
 
     // ---- Alive: orbs, drifting light, greeting, writing effect -----------------

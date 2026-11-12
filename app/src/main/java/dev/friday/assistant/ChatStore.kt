@@ -10,7 +10,7 @@ import java.io.File
  * [viaTool] marks the lines of a turn in which Friday used a tool; those are kept for the screen
  * but never sent back to the model as history (see MainActivity.historyForModel).
  */
-data class StoredBubble(val kind: String, val text: String, val viaTool: Boolean = false)
+data class StoredBubble(val kind: String, val text: String, val viaTool: Boolean = false, val at: Long = 0L)
 
 /**
  * Saved conversations, one small JSON file per chat in the app's private storage.
@@ -30,7 +30,7 @@ class ChatStore(context: Context) {
             .put("updatedAt", System.currentTimeMillis())
             .put("messages", JSONArray().apply {
                 lines.forEach {
-                    put(JSONObject().put("kind", it.kind).put("text", it.text).put("viaTool", it.viaTool))
+                    put(JSONObject().put("kind", it.kind).put("text", it.text).put("viaTool", it.viaTool).put("at", it.at))
                 }
             })
         // Write to a temp file and rename, so a crash mid-write cannot leave half a chat.
@@ -63,7 +63,7 @@ class ChatStore(context: Context) {
 
     private fun parse(o: JSONObject): StoredBubble =
         if (o.has("kind")) {
-            StoredBubble(o.getString("kind"), o.getString("text"), o.optBoolean("viaTool", false))
+            StoredBubble(o.getString("kind"), o.getString("text"), o.optBoolean("viaTool", false), o.optLong("at", 0L))
         } else {
             // Saved by an older build, which did not record tool use and whose "done" replies
             // may never have run a tool. Showing them is fine; teaching the model from them is not.
