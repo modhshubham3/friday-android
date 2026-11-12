@@ -20,12 +20,13 @@ object ModelHealth {
     /**
      * Rest a model for as long as its failure is likely to last: a used-up quota or a retired
      * model will not fix itself in seconds, an overloaded one often clears within a minute.
-     * No network, a bad key or a bad request say nothing about this model, so they rest nothing.
+     * No network or a bad request say nothing about this model, so they rest nothing.
      */
     fun failed(name: String, error: Throwable) {
         val ms = when {
             error is LlmHttpException && error.code == 429 -> 5 * 60_000L
-            error is LlmHttpException && error.code == 404 -> 30 * 60_000L
+            error is LlmHttpException && error.code in setOf(402, 404) -> 30 * 60_000L // no balance / retired model
+            error is LlmHttpException && error.code in setOf(401, 403) -> 10 * 60_000L // a key that is refused stays refused
             error is LlmHttpException && error.code in 500..599 -> 60_000L
             error is SocketTimeoutException -> 60_000L
             else -> 0L
