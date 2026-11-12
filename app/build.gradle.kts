@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "dev.friday.assistant"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.fridayvoice.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 3
-        versionName = "0.3"
+        targetSdk = 36
+        versionCode = 5
+        versionName = "0.5"
     }
 
     // A fixed debug keystore is committed on purpose: every CI build then carries
