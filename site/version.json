@@ -1,1 +1,1 @@
-{"code":114,"name":"0.114","sha256":"55cd5354b9bc631dbffe1f0bffb78de5330c5e3e958608c330307f5f76dcd5a4","size":2577395,"notes":"Add tool calling: set alarm, call a contact, flashlight","time":"2026-11-12T08:16:26Z"}
+{"code":115,"name":"0.115","sha256":"9d4b7c148c81efb9bf6f9f9c14a3807edf87e0be1b86fd7107f10e04d2873682","size":2592271,"notes":"Ask before acting and verify alarms; fuzzy contact match with a picker","time":"2026-11-12T08:31:11Z"}
