@@ -24,6 +24,19 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+            // All three schemes, because some OEM installers reject v2-only APKs.
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
+    // The APK we actually install is "release": not debuggable, which phone
+    // installers and Play Protect treat with less suspicion than a debug build.
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

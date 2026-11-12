@@ -9,3 +9,4 @@ captures/
 *.apk
 *.keystore
 !app/debug.keystore
+dist/
