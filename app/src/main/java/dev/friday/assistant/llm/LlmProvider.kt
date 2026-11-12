@@ -14,6 +14,12 @@ data class ToolCall(val id: String, val name: String, val args: JSONObject, val 
 /** What the tool did, sent back so the model can tell the user. */
 data class ToolResult(val id: String, val name: String, val output: String) : ChatItem
 
+/**
+ * What a tool did. [final] true means the text is already plain and complete, so it is shown to the
+ * user as it is and no second model call is needed. False means the model should put it into words.
+ */
+data class ToolOutput(val text: String, val final: Boolean = true)
+
 /** A tool the model may ask for. [parameters] is a JSON Schema object. */
 class ToolSpec(val name: String, val description: String, val parameters: JSONObject)
 

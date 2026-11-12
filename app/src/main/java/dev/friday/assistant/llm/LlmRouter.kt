@@ -3,34 +3,52 @@ package dev.friday.assistant.llm
 import kotlinx.coroutines.delay
 
 /**
- * Failover router: tries providers in order and returns the first success.
- * This is how free tiers stay usable - when Gemini answers 429 (rate limit),
- * the same question goes to the next model.
+ * Failover router: tries models in order and returns the first success. This is how free tiers
+ * stay usable - when one model answers 429 (quota) the same question goes to the next.
  *
- * It also runs the tool loop: when a model asks for a tool, [runTool] performs it,
- * the result goes back to the same model, and that continues until the model answers in words.
+ * It also runs the tool loop: when a model asks for a tool, [runTool] performs it and, unless the
+ * result is already plain enough to show, the result goes back to the same model to put in words.
  */
 class LlmRouter(providers: List<LlmProvider>) {
-    private val active = providers.filter { it.isConfigured }
+    private val configured = providers.filter { it.isConfigured }
 
-    /** [errors] lists why each earlier provider failed, for showing on screen. */
-    data class Reply(val text: String, val provider: String?, val errors: List<String>)
+    /**
+     * [errors] lists why earlier models failed, for showing on screen. [usedTools] says a tool ran.
+     * [direct] says [text] is a tool's own result shown as it is, with no model call after it.
+     */
+    data class Reply(
+        val text: String,
+        val provider: String?,
+        val errors: List<String>,
+        val usedTools: Boolean = false,
+        val direct: Boolean = false,
+    )
+
+    private data class Done(val text: String, val usedTools: Boolean, val direct: Boolean)
 
     suspend fun ask(
         systemPrompt: String,
         history: List<ChatMessage>,
         tools: List<ToolSpec>,
-        runTool: suspend (ToolCall) -> String,
+        runTool: suspend (ToolCall) -> ToolOutput,
     ): Reply {
-        if (active.isEmpty()) {
+        if (configured.isEmpty()) {
             return Reply("API key nahi mili. Settings mein key daalo.", null, emptyList())
         }
+        // Models that just failed in a way that will not clear in seconds are skipped, so their
+        // failure is not waited on again for every message. If all of them are resting, try them all.
+        val candidates = configured.filterNot { ModelHealth.isResting(it.name) }.ifEmpty { configured }
         val errors = mutableListOf<String>()
         val failures = mutableListOf<Throwable>()
-        for (p in active) {
-            val result = converse(p, systemPrompt, history, tools, runTool)
-            result.onSuccess { return Reply(it, p.name, errors) }
+        for ((i, p) in candidates.withIndex()) {
+            // Waiting to retry only pays off when there is no other model to move on to.
+            val result = converse(p, systemPrompt, history, tools, runTool, retry = i == candidates.lastIndex)
+            result.onSuccess {
+                ModelHealth.succeeded(p.name)
+                return Reply(it.text, p.name, errors, it.usedTools, it.direct)
+            }
             val failure = result.exceptionOrNull() ?: Exception("unknown error")
+            ModelHealth.failed(p.name, failure)
             failures += failure
             errors += "${p.name}: ${failure.message}"
         }
@@ -45,51 +63,68 @@ class LlmRouter(providers: List<LlmProvider>) {
         return Reply("Abhi koi bhi model jawab nahi de raha.", null, errors)
     }
 
-    /** One provider, start to finish. The whole tool exchange stays with this one model. */
+    /** One model, start to finish. The whole tool exchange stays with this one model. */
     private suspend fun converse(
         p: LlmProvider,
         systemPrompt: String,
         history: List<ChatMessage>,
         tools: List<ToolSpec>,
-        runTool: suspend (ToolCall) -> String,
-    ): Result<String> {
+        runTool: suspend (ToolCall) -> ToolOutput,
+        retry: Boolean,
+    ): Result<Done> {
         val items = history.toMutableList<ChatItem>()
         val toolOutputs = mutableListOf<String>()
         repeat(MAX_TOOL_STEPS) {
-            val result = chatWithRetry(p, systemPrompt, items, tools)
+            val result = chatWithRetry(p, systemPrompt, items, tools, retry)
             val reply = result.getOrElse { e ->
                 // Tools already acted on the phone. Asking another model to start over would
                 // run them a second time, so report what was done instead.
-                return if (toolOutputs.isNotEmpty()) Result.success(toolOutputs.joinToString(" ")) else Result.failure(e)
+                return if (toolOutputs.isNotEmpty()) {
+                    Result.success(Done(toolOutputs.joinToString(" "), usedTools = true, direct = false))
+                } else {
+                    Result.failure(e)
+                }
             }
             if (reply.toolCalls.isEmpty()) {
                 val text = reply.text.ifBlank { toolOutputs.joinToString(" ") }
-                return if (text.isBlank()) Result.failure(IllegalStateException("empty reply")) else Result.success(text)
+                return if (text.isBlank()) {
+                    Result.failure(IllegalStateException("empty reply"))
+                } else {
+                    Result.success(Done(text, usedTools = toolOutputs.isNotEmpty(), direct = false))
+                }
             }
             items += reply.toolCalls
+            val stepOutputs = mutableListOf<String>()
+            var allFinal = true
             for (call in reply.toolCalls) {
                 val output = runTool(call)
-                toolOutputs += output
-                items += ToolResult(call.id, call.name, output)
+                toolOutputs += output.text
+                stepOutputs += output.text
+                allFinal = allFinal && output.final
+                items += ToolResult(call.id, call.name, output.text)
             }
+            // The tool's own sentence says it all, so skip the second model call: it is both
+            // faster and impossible for the model to misreport.
+            if (allFinal) return Result.success(Done(stepOutputs.joinToString(" "), usedTools = true, direct = true))
         }
         // The model kept asking for tools; stop and report what happened.
-        return Result.success(toolOutputs.joinToString(" "))
+        return Result.success(Done(toolOutputs.joinToString(" "), usedTools = true, direct = false))
     }
 
     /**
-     * A 5xx means the provider itself is overloaded or briefly down, which usually
-     * clears in seconds, so the same request is retried once after a pause.
-     * Other failures (bad key, unknown model, rate limit) will not fix themselves,
-     * so they fall through to the next provider at once.
+     * A 5xx means the provider itself is overloaded or briefly down, which usually clears in
+     * seconds, so the same request can be retried once after a pause. Other failures (bad key,
+     * unknown model, rate limit) will not fix themselves.
      */
     private suspend fun chatWithRetry(
         p: LlmProvider,
         systemPrompt: String,
         items: List<ChatItem>,
         tools: List<ToolSpec>,
+        retry: Boolean,
     ): Result<ModelReply> {
         var result = p.chat(systemPrompt, items, tools)
+        if (!retry) return result
         for (pauseMs in RETRY_PAUSES_MS) {
             val code = (result.exceptionOrNull() as? LlmHttpException)?.code ?: break
             if (code !in 500..599) break
@@ -100,7 +135,6 @@ class LlmRouter(providers: List<LlmProvider>) {
     }
 
     private companion object {
-        // One short retry only: with several models in the chain, moving on is faster than waiting.
         val RETRY_PAUSES_MS = listOf(1_000L)
 
         /** Most tool rounds per question, so a confused model cannot loop forever. */

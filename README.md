@@ -28,6 +28,7 @@ Every push to `main` builds the APK in GitHub Actions and commits it to `site/`,
 - `MainActivity.kt` - UI, SpeechRecognizer, TextToSpeech
 - `Settings.kt` - API keys, model names, theme and text size saved on the phone
 - `Look.kt` - colour themes, looks and text sizes, combined into one Style
+- `llm/ModelHealth.kt` - remembers which models just failed so they are skipped for a while
 - `tools/PhoneTools.kt` - what Friday can do on the phone: alarm, call, flashlight
 - `ChatStore.kt` - saved chats, one JSON file each
 - `Updater.kt` - checks the site for a newer build, downloads and verifies it

@@ -20,8 +20,8 @@ internal suspend fun postJson(
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "POST"
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 30_000
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 15_000
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }

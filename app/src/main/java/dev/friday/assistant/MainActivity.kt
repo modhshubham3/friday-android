@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
 
     /** What a bubble on screen holds. Only USER and FRIDAY are saved and sent to the model; TOOL lines show what Friday did. */
     private enum class Kind { USER, FRIDAY, ERROR, TOOL }
-    private data class Bubble(val kind: Kind, val text: String)
+    private data class Bubble(val kind: Kind, val text: String, val viaTool: Boolean = false)
 
     /** Everything on screen for the open chat, oldest first. */
     private val bubbles = mutableListOf<Bubble>()
@@ -221,14 +221,22 @@ class MainActivity : ComponentActivity() {
             chatId = chats.newId()
         } else {
             chatId = id
-            chats.load(id).forEach { bubbles += Bubble(if (it.fromUser) Kind.USER else Kind.FRIDAY, it.text) }
+            chats.load(id).forEach {
+                val kind = when (it.kind) { "user" -> Kind.USER; "tool" -> Kind.TOOL; else -> Kind.FRIDAY }
+                bubbles += Bubble(kind, it.text, it.viaTool)
+            }
         }
         status.text = getString(R.string.idle)
         applyLook()
     }
 
     private fun saveChat() {
-        chats.save(chatId, bubbles.filter { it.kind == Kind.USER || it.kind == Kind.FRIDAY }.map { ChatMessage(it.kind == Kind.USER, it.text) })
+        chats.save(
+            chatId,
+            bubbles.filter { it.kind != Kind.ERROR }.map {
+                StoredBubble(it.kind.name.lowercase(), it.text, it.viaTool)
+            },
+        )
     }
 
     private fun showChats() {
@@ -266,6 +274,7 @@ class MainActivity : ComponentActivity() {
 
     private fun onHeard(text: String, speak: Boolean = true) {
         addBubble(Bubble(Kind.USER, text))
+        val userIndex = bubbles.lastIndex
         saveChat()
         status.text = "Soch raha hu..."
         setBusy(true)
@@ -273,14 +282,21 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val reply = buildRouter().ask(systemPrompt(), historyForModel(), phoneTools.specs) { call ->
                 val output = phoneTools.run(call)
-                addBubble(Bubble(Kind.TOOL, output))
+                // A plain result is shown as the reply itself; only ones the model must explain appear here.
+                if (!output.final) addBubble(Bubble(Kind.TOOL, output.text, viaTool = true))
                 output
             }
             stopTyping()
             // No Android Studio means no logcat, so failures are shown on screen.
             reply.errors.forEach { addBubble(Bubble(Kind.ERROR, it)) }
+            if (reply.usedTools) bubbles[userIndex] = bubbles[userIndex].copy(viaTool = true)
             // A canned "nobody answered" line is not Friday speaking, so it must not enter the history.
-            addBubble(Bubble(if (reply.provider != null) Kind.FRIDAY else Kind.ERROR, reply.text))
+            val kind = when {
+                reply.provider == null -> Kind.ERROR
+                reply.direct -> Kind.TOOL
+                else -> Kind.FRIDAY
+            }
+            addBubble(Bubble(kind, reply.text, viaTool = reply.usedTools))
             saveChat()
             status.text = reply.provider?.let { "Jawab: $it" } ?: getString(R.string.idle)
             setBusy(false)
@@ -289,11 +305,15 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The conversation as the model should see it: no error bubbles, starting with a
-     * user turn, and only the most recent turns so requests stay small and cheap.
+     * The conversation as the model should see it: no error bubbles, starting with a user turn,
+     * and only the most recent turns so requests stay small and cheap.
+     *
+     * Turns in which Friday used a tool are left out. The history holds only text, so a past
+     * "call Gauri" answered "call laga raha hu" looks, to the model, like a request that is
+     * answered in words alone, and it copies that instead of calling the tool.
      */
     private fun historyForModel(): List<ChatMessage> =
-        bubbles.filter { it.kind == Kind.USER || it.kind == Kind.FRIDAY }
+        bubbles.filter { (it.kind == Kind.USER || it.kind == Kind.FRIDAY) && !it.viaTool }
             .map { ChatMessage(fromUser = it.kind == Kind.USER, text = it.text) }
             // A failed question leaves two user turns in a row; keep only the newer one.
             .fold(mutableListOf<ChatMessage>()) { acc, m ->
@@ -738,7 +758,7 @@ class MainActivity : ComponentActivity() {
                 "When a request is clear, act on it without asking for confirmation. Never guess a missing detail: if the time (including AM or PM), the contact or the alarm " +
                 "is unclear, ask one short question first and wait for the answer. To remove an alarm you " +
                 "need its exact time: if the user does not give it, use get_next_alarm and ask whether that " +
-                "is the one. Say a task is done only if the tool result says it was confirmed; if the " +
+                "is the one. Say a task is done only if the tool result says it was confirmed, and never without calling the tool in this very reply, even if an earlier answer looked similar; if the " +
                 "result says it could not confirm, say exactly that and tell the user to check. " +
                 "For an alarm like 'in 20 minutes', work out the exact time from the current time below."
     }

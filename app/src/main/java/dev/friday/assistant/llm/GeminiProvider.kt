@@ -15,6 +15,24 @@ class GeminiProvider(
         items: List<ChatItem>,
         tools: List<ToolSpec>,
     ): Result<ModelReply> {
+        // Switching "thinking" off makes replies much faster. Some models refuse that setting,
+        // so they are asked again the normal way, and the app remembers not to try it on them.
+        val thinkingOff = !ModelHealth.rejectsThinkingOff(model)
+        val first = request(systemPrompt, items, tools, thinkingOff)
+        val failure = first.exceptionOrNull()
+        if (thinkingOff && failure is LlmHttpException && failure.code == 400) {
+            ModelHealth.markRejectsThinkingOff(model)
+            return request(systemPrompt, items, tools, thinkingOff = false)
+        }
+        return first
+    }
+
+    private suspend fun request(
+        systemPrompt: String,
+        items: List<ChatItem>,
+        tools: List<ToolSpec>,
+        thinkingOff: Boolean,
+    ): Result<ModelReply> {
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(textPart(systemPrompt))))
             .put("contents", contents(items))
@@ -26,6 +44,10 @@ class GeminiProvider(
                 )
             }
             body.put("tools", JSONArray().put(JSONObject().put("functionDeclarations", declarations)))
+        }
+
+        if (thinkingOff) {
+            body.put("generationConfig", JSONObject().put("thinkingConfig", JSONObject().put("thinkingBudget", 0)))
         }
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"

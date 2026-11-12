@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import dev.friday.assistant.SavedContact
 import dev.friday.assistant.Settings
 import dev.friday.assistant.llm.ToolCall
+import dev.friday.assistant.llm.ToolOutput
 import dev.friday.assistant.llm.ToolSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -88,19 +89,27 @@ class PhoneTools(
         ),
     )
 
-    suspend fun run(call: ToolCall): String = try {
-        when (call.name) {
-            "set_alarm" -> setAlarm(call.args)
-            "get_next_alarm" -> nextAlarmText()
-            "cancel_alarm" -> cancelAlarm(call.args)
-            "make_call" -> makeCall(call.args.optString("name_or_number"))
-            "flashlight" -> flashlight(call.args.optBoolean("on", true))
-            else -> "Error: '${call.name}' naam ka koi tool nahi hai"
+    suspend fun run(call: ToolCall): ToolOutput {
+        val text = try {
+            when (call.name) {
+                "set_alarm" -> setAlarm(call.args)
+                "get_next_alarm" -> nextAlarmText()
+                "cancel_alarm" -> cancelAlarm(call.args)
+                "make_call" -> makeCall(call.args.optString("name_or_number"))
+                "flashlight" -> flashlight(call.args.optBoolean("on", true))
+                else -> "Error: '${call.name}' naam ka koi tool nahi hai"
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Error: ${e.message ?: e.javaClass.simpleName}"
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        "Error: ${e.message ?: e.javaClass.simpleName}"
+        // A plain result is shown to the user as it is. Errors, and anything written for the model
+        // ("User ko ... bolo"), go back to the model to put into words; so does get_next_alarm,
+        // which only exists to give the model something to ask the user about.
+        val forModel = call.name == "get_next_alarm" || text.startsWith("Error:") ||
+            text.contains("user ko", ignoreCase = true) || text.contains("user se", ignoreCase = true)
+        return ToolOutput(text, final = !forModel)
     }
 
     // ---- Alarm ------------------------------------------------------------
@@ -162,7 +171,7 @@ class PhoneTools(
         val (hour, minute) = readTime(args) ?: return "Error: alarm ka sahi hour (0-23) aur minute (0-59) chahiye"
         val apps = clockApps()
         if (apps.isEmpty()) return "Error: is phone mein alarm ke liye koi Clock app nahi mili"
-        val app = pickClockApp(apps) ?: return "User ne Clock app nahi chuni, isliye alarm nahi lagaya"
+        val app = pickClockApp(apps) ?: return "Theek hai, Clock app nahi chuni isliye alarm nahi lagaya"
 
         val intent = Intent(AlarmClock.ACTION_SET_ALARM)
             .setPackage(app.pkg)
@@ -207,11 +216,11 @@ class PhoneTools(
         // The question is asked by the app, not left to the model, so a destructive step
         // can never happen on a guess.
         if (!prompts.confirm("$label ka alarm hata du?", "Haan, hata do")) {
-            return "User ne mana kiya, koi alarm nahi hataya"
+            return "Theek hai, alarm nahi hataya"
         }
         val apps = clockApps()
         if (apps.isEmpty()) return "Error: is phone mein koi Clock app nahi mili"
-        val app = pickClockApp(apps) ?: return "User ne Clock app nahi chuni, isliye kuch nahi hataya"
+        val app = pickClockApp(apps) ?: return "Theek hai, Clock app nahi chuni isliye kuch nahi hataya"
 
         val expected = nextOccurrence(hour, minute)
         val wasNext = isAt(alarmManager().nextAlarmClock?.triggerTime, expected)
@@ -272,7 +281,7 @@ class PhoneTools(
         val contact = sure ?: run {
             userChose = true
             val index = prompts.choose("Kisko call karun?", matches.map { it.name })
-                ?: return "User ne koi contact nahi chuna, call nahi kiya"
+                ?: return "Theek hai, call nahi kiya"
             matches[index]
         }
         val number = if (contact.numbers.size == 1) {
@@ -280,7 +289,7 @@ class PhoneTools(
         } else {
             userChose = true
             val index = prompts.choose("${contact.name}: kaunsa number?", contact.numbers)
-                ?: return "User ne number nahi chuna, call nahi kiya"
+                ?: return "Theek hai, call nahi kiya"
             contact.numbers[index]
         }
         if (userChose) settings.saveContact(key, SavedContact(contact.name, number))
