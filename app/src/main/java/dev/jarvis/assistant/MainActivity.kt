@@ -1,6 +1,7 @@
 package dev.jarvis.assistant
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -9,6 +10,8 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,10 +37,13 @@ class MainActivity : ComponentActivity() {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
-    private val router = LlmRouter(
+    private lateinit var settings: Settings
+
+    /** Built per question so a key changed in Settings applies immediately. */
+    private fun buildRouter() = LlmRouter(
         listOf(
-            GeminiProvider(BuildConfig.GEMINI_API_KEY, BuildConfig.GEMINI_MODEL),
-            GroqProvider(BuildConfig.GROQ_API_KEY, BuildConfig.GROQ_MODEL),
+            GeminiProvider(settings.geminiKey, settings.geminiModel),
+            GroqProvider(settings.groqKey, settings.groqModel),
         ),
     )
 
@@ -49,6 +55,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        settings = Settings(this)
+        findViewById<Button>(R.id.settingsButton).setOnClickListener { showSettings() }
         status = findViewById(R.id.status)
         transcript = findViewById(R.id.transcript)
         talkButton = findViewById(R.id.talkButton)
@@ -88,12 +96,43 @@ class MainActivity : ComponentActivity() {
         transcript.append("Tum: $text\n")
         status.text = "Soch raha hu..."
         lifecycleScope.launch {
-            val reply = router.ask(SYSTEM_PROMPT, text)
+            val reply = buildRouter().ask(SYSTEM_PROMPT, text)
+            // No Android Studio means no logcat, so failures are printed on screen.
+            reply.errors.forEach { transcript.append("[error] $it\n") }
             transcript.append("Jarvis: ${reply.text}\n\n")
             status.text = reply.provider?.let { "Jawab: $it" } ?: getString(R.string.idle)
             talkButton.isEnabled = true
             if (ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
         }
+    }
+
+    private fun showSettings() {
+        fun field(label: String, value: String) = EditText(this).apply {
+            hint = label
+            setText(value)
+            isSingleLine = true
+        }
+        val geminiKey = field("Gemini API key", settings.geminiKey)
+        val geminiModel = field("Gemini model", settings.geminiModel)
+        val groqKey = field("Groq API key (optional)", settings.groqKey)
+        val groqModel = field("Groq model", settings.groqModel)
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.settings)
+            .setView(form)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                settings.geminiKey = geminiKey.text.toString()
+                settings.geminiModel = geminiModel.text.toString()
+                settings.groqKey = groqKey.text.toString()
+                settings.groqModel = groqModel.text.toString()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private val listener = object : RecognitionListener {

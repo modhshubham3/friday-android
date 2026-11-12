@@ -1,17 +1,7 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
-
-// Keys are read from local.properties (git-ignored) and baked into BuildConfig.
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}
-fun prop(name: String, default: String = ""): String =
-    localProps.getProperty(name, default).trim()
 
 android {
     namespace = "dev.jarvis.assistant"
@@ -23,14 +13,19 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1"
-
-        buildConfigField("String", "GEMINI_API_KEY", "\"${prop("GEMINI_API_KEY")}\"")
-        buildConfigField("String", "GEMINI_MODEL", "\"${prop("GEMINI_MODEL", "gemini-2.5-flash")}\"")
-        buildConfigField("String", "GROQ_API_KEY", "\"${prop("GROQ_API_KEY")}\"")
-        buildConfigField("String", "GROQ_MODEL", "\"${prop("GROQ_MODEL", "llama-3.3-70b-versatile")}\"")
     }
 
-    buildFeatures { buildConfig = true }
+    // A fixed debug keystore is committed on purpose: every CI build then carries
+    // the same signature, so a new APK installs over the old one and keeps its data.
+    // This is the standard, non-secret debug key - never use it for a Play Store release.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

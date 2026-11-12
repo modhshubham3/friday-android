@@ -9,18 +9,17 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 - [ ] Week 3: "Jarvis" wake word + foreground service
 - [ ] Week 4: lock screen + battery-optimization handling
 
-## Setup
+## Setup (no Android Studio needed)
 
-1. Install Android Studio and open this folder.
-2. Copy `local.properties.example` to `local.properties` and add your keys
-   (Android Studio adds the `sdk.dir` line to the same file).
-3. Connect the phone with USB debugging on and press Run.
-
-`local.properties` is git-ignored. Keys end up inside the APK, so do not share the APK.
+1. Push to `main`. GitHub Actions builds the APK (about 3-5 minutes).
+2. On the phone, open the repo's Releases page and download `jarvis.apk` from "Latest build".
+3. Install it (allow "install unknown apps" for the browser when asked).
+4. Open the app, tap Settings, and paste the API key. Keys stay on the phone only.
 
 ## Layout
 
 - `MainActivity.kt` - UI, SpeechRecognizer, TextToSpeech
+- `Settings.kt` - API keys and model names saved on the phone
 - `llm/LlmProvider.kt` - interface every model backend implements
 - `llm/LlmRouter.kt` - tries providers in order, falls over on failure
 - `llm/GeminiProvider.kt`, `llm/GroqProvider.kt` - the two free backends
