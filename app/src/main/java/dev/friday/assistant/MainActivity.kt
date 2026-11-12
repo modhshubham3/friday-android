@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognitionListener
+import android.text.InputType
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
@@ -107,14 +108,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showSettings() {
-        fun field(label: String, value: String) = EditText(this).apply {
+        // Keys are shown as dots so a screenshot of this dialog cannot leak them.
+        fun field(label: String, value: String, secret: Boolean = false) = EditText(this).apply {
             hint = label
+            inputType = InputType.TYPE_CLASS_TEXT or
+                if (secret) InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setText(value)
-            isSingleLine = true
         }
-        val geminiKey = field("Gemini API key", settings.geminiKey)
+        val geminiKey = field("Gemini API key", settings.geminiKey, secret = true)
         val geminiModel = field("Gemini model", settings.geminiModel)
-        val groqKey = field("Groq API key (optional)", settings.groqKey)
+        val groqKey = field("Groq API key (optional)", settings.groqKey, secret = true)
         val groqModel = field("Groq model", settings.groqModel)
         val pad = (20 * resources.displayMetrics.density).toInt()
         val form = LinearLayout(this).apply {
