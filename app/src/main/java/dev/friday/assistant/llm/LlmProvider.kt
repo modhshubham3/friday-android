@@ -34,5 +34,12 @@ interface LlmProvider {
     suspend fun chat(systemPrompt: String, items: List<ChatItem>, tools: List<ToolSpec>): Result<ModelReply>
 }
 
-class LlmHttpException(val code: Int, body: String) :
-    Exception("HTTP $code: ${body.take(300)}")
+class LlmHttpException(val code: Int, body: String) : Exception("HTTP $code: ${summarize(body)}") {
+    private companion object {
+        /** Providers answer with a long JSON error; the first line of its message is what matters. */
+        fun summarize(body: String): String =
+            runCatching { JSONObject(body).getJSONObject("error").getString("message") }.getOrNull()
+                ?.lineSequence()?.firstOrNull()?.take(110)
+                ?: body.take(160)
+    }
+}

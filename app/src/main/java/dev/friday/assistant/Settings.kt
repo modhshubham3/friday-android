@@ -34,6 +34,11 @@ class Settings(context: Context) {
         get() = prefs.getString("groq_model", null) ?: "llama-3.3-70b-versatile"
         set(v) = prefs.edit().putString("groq_model", v.trim()).apply()
 
+    /** The Clock app used for alarms; null means ask. */
+    var alarmPackage: String?
+        get() = prefs.getString("alarm_pkg", null)
+        set(v) = prefs.edit().apply { if (v == null) remove("alarm_pkg") else putString("alarm_pkg", v) }.apply()
+
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()

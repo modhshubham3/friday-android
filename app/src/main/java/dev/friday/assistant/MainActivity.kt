@@ -38,13 +38,16 @@ import dev.friday.assistant.llm.GeminiProvider
 import dev.friday.assistant.llm.GroqProvider
 import dev.friday.assistant.llm.LlmRouter
 import dev.friday.assistant.tools.PhoneTools
+import dev.friday.assistant.tools.UserPrompts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.coroutines.resume
 
 /**
  * The chat screen. A question arrives typed or spoken (SpeechRecognizer), goes to
@@ -116,6 +119,35 @@ class MainActivity : ComponentActivity() {
         return answer.await()
     }
 
+    /** The questions tools put to the user: pick from a list, or confirm before removing something. */
+    private val prompts = object : UserPrompts {
+        override suspend fun ensureContacts() = this@MainActivity.ensureContacts()
+
+        override suspend fun choose(title: String, options: List<String>): Int? =
+            suspendCancellableCoroutine { cont ->
+                val dialog = AlertDialog.Builder(this@MainActivity)
+                    .setTitle(title)
+                    .setItems(options.toTypedArray()) { _, which -> if (cont.isActive) cont.resume(which) }
+                    .setNegativeButton("Rehne do", null)
+                    .setOnDismissListener { if (cont.isActive) cont.resume(null) }
+                    .create()
+                cont.invokeOnCancellation { dialog.dismiss() }
+                dialog.show()
+            }
+
+        override suspend fun confirm(message: String, yes: String): Boolean =
+            suspendCancellableCoroutine { cont ->
+                val dialog = AlertDialog.Builder(this@MainActivity)
+                    .setMessage(message)
+                    .setPositiveButton(yes) { _, _ -> if (cont.isActive) cont.resume(true) }
+                    .setNegativeButton("Nahi", null)
+                    .setOnDismissListener { if (cont.isActive) cont.resume(false) }
+                    .create()
+                cont.invokeOnCancellation { dialog.dismiss() }
+                dialog.show()
+            }
+    }
+
     private val askMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startListening() else status.text = "Mic permission ke bina kaam nahi chalega"
@@ -126,7 +158,7 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
         settings = Settings(this)
         chats = ChatStore(this)
-        phoneTools = PhoneTools(this) { ensureContacts() }
+        phoneTools = PhoneTools(this, settings, prompts)
 
         root = findViewById(R.id.root)
         title = findViewById(R.id.title)
@@ -631,6 +663,14 @@ class MainActivity : ComponentActivity() {
         val lookPicker = picker(Look.LOOKS.map { it.label }, Look.LOOKS.indexOfFirst { it.id == settings.lookId })
         val themePicker = picker(Look.THEMES.map { it.label }, Look.THEMES.indexOfFirst { it.id == settings.themeId })
         val sizePicker = picker(Look.SIZES.map { it.label }, Look.SIZES.indexOfFirst { it.id == settings.sizeId })
+        // Only worth showing when there is a real choice to make.
+        val clockApps = phoneTools.clockApps()
+        val clockPicker = if (clockApps.size > 1) {
+            picker(
+                listOf("Har baar poocho") + clockApps.map { it.label },
+                clockApps.indexOfFirst { it.pkg == settings.alarmPackage } + 1,
+            )
+        } else null
         val pad = dp(20f).toInt()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -638,6 +678,7 @@ class MainActivity : ComponentActivity() {
             addView(label("Look")); addView(lookPicker)
             addView(label("Theme (iOS looks ke apne colours hain)")); addView(themePicker)
             addView(label("Text ka size")); addView(sizePicker)
+            clockPicker?.let { addView(label("Alarm ke liye Clock app")); addView(it) }
             addView(label("AI models"))
             listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
         }
@@ -648,6 +689,9 @@ class MainActivity : ComponentActivity() {
                 settings.lookId = Look.LOOKS[lookPicker.selectedItemPosition].id
                 settings.themeId = Look.THEMES[themePicker.selectedItemPosition].id
                 settings.sizeId = Look.SIZES[sizePicker.selectedItemPosition].id
+                clockPicker?.let { picker ->
+                    settings.alarmPackage = clockApps.getOrNull(picker.selectedItemPosition - 1)?.pkg
+                }
                 settings.geminiKey = geminiKey.text.toString()
                 settings.geminiModel = geminiModel.text.toString()
                 settings.groqKey = groqKey.text.toString()
@@ -680,10 +724,12 @@ class MainActivity : ComponentActivity() {
                 "Replies appear in a small chat bubble and are sometimes read aloud, so keep them " +
                 "short and conversational with no markdown, lists, or emojis. Reply in Hinglish (Hindi " +
                 "written in Roman script mixed with English) unless the user writes pure English. " +
-                "You can set alarms, start phone calls and switch the flashlight with your tools. " +
-                "Use a tool whenever the user asks for one of those things, and only say it is done " +
-                "after the tool result says so. If a tool reports an error or asks you to check with " +
-                "the user, relay that plainly. For an alarm like 'in 20 minutes', work out the exact " +
-                "time from the current time below."
+                "You can set and cancel alarms, start phone calls and switch the flashlight with your tools. " +
+                "Never guess a missing detail. If the time (including AM or PM), the contact or the alarm " +
+                "is unclear, ask one short question first and wait for the answer. To remove an alarm you " +
+                "need its exact time: if the user does not give it, use get_next_alarm and ask whether that " +
+                "is the one. Say a task is done only if the tool result says it was confirmed; if the " +
+                "result says it could not confirm, say exactly that and tell the user to check. " +
+                "For an alarm like 'in 20 minutes', work out the exact time from the current time below."
     }
 }

@@ -26,10 +26,21 @@ class LlmRouter(providers: List<LlmProvider>) {
             return Reply("API key nahi mili. Settings mein key daalo.", null, emptyList())
         }
         val errors = mutableListOf<String>()
+        val failures = mutableListOf<Throwable>()
         for (p in active) {
             val result = converse(p, systemPrompt, history, tools, runTool)
             result.onSuccess { return Reply(it, p.name, errors) }
-            errors += "${p.name}: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+            val failure = result.exceptionOrNull() ?: Exception("unknown error")
+            failures += failure
+            errors += "${p.name}: ${failure.message}"
+        }
+        // Every model failing to even reach Google is the phone being offline, not five separate problems.
+        if (failures.all { it is java.io.IOException }) {
+            return Reply(
+                "Internet nahi mil raha. Wi-Fi ya data check karke dobara try karo.",
+                null,
+                listOf("Network: ${failures.first().message}"),
+            )
         }
         return Reply("Abhi koi bhi model jawab nahi de raha.", null, errors)
     }
