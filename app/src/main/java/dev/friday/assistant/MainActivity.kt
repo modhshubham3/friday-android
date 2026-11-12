@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
 
     /** Set while we wait for the user to allow "install unknown apps". */
     private var pendingUpdate: Updater.Update? = null
+    private var updateDialogShowing = false
+    private var lastUpdateCheck = 0L
 
     private val askMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -115,7 +117,6 @@ class MainActivity : ComponentActivity() {
         }
 
         applyLook()
-        checkForUpdate()
 
         talkButton.setOnClickListener {
             if (busy) return@setOnClickListener
@@ -144,15 +145,35 @@ class MainActivity : ComponentActivity() {
         sr.startListening(intent)
     }
 
-    private fun checkForUpdate() {
+    /**
+     * Runs every time the screen comes to the front, not only on a cold start: Android
+     * keeps the app alive in the background, so onCreate alone can go days without running.
+     * [manual] is true when the user asked from Settings, and then the outcome is always
+     * reported; an automatic check stays silent unless there is an update.
+     */
+    private fun checkForUpdate(manual: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!manual && (updateDialogShowing || now - lastUpdateCheck < UPDATE_CHECK_GAP_MS)) return
+        lastUpdateCheck = now
         lifecycleScope.launch {
-            // A failed check (offline, site down) must never block using the app.
-            val update = runCatching { Updater.check(this@MainActivity) }.getOrNull() ?: return@launch
+            val result = runCatching { Updater.check(this@MainActivity) }
+            val update = result.getOrNull()
+            if (update == null) {
+                // A failed automatic check (offline, site down) must never get in the way.
+                if (manual) {
+                    status.text = result.exceptionOrNull()?.let { "Update check fail: ${it.message}" }
+                        ?: "Friday latest hai (build ${Updater.installedCode(this@MainActivity)})"
+                }
+                return@launch
+            }
+            if (updateDialogShowing) return@launch
+            updateDialogShowing = true
             AlertDialog.Builder(this@MainActivity)
                 .setTitle("Naya version ${update.name}")
                 .setMessage(update.notes.ifBlank { "Friday ka naya build available hai." })
                 .setPositiveButton("Update") { _, _ -> startUpdate(update) }
                 .setNegativeButton("Baad mein", null)
+                .setOnDismissListener { updateDialogShowing = false }
                 .show()
         }
     }
@@ -182,8 +203,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val update = pendingUpdate ?: return
-        if (Updater.canInstall(this)) startUpdate(update)
+        val update = pendingUpdate
+        if (update == null) checkForUpdate()
+        else if (Updater.canInstall(this)) startUpdate(update)
     }
 
     private fun sendTyped() {
@@ -349,7 +371,7 @@ class MainActivity : ComponentActivity() {
             listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
         }
         AlertDialog.Builder(this)
-            .setTitle(R.string.settings)
+            .setTitle("Settings (build ${Updater.installedCode(this)})")
             .setView(ScrollView(this).apply { addView(form) })
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 settings.themeId = Look.THEMES[themePicker.selectedItemPosition].id
@@ -361,6 +383,10 @@ class MainActivity : ComponentActivity() {
                 settings.groqModel = groqModel.text.toString()
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .setNeutralButton("Update check") { _, _ ->
+                status.text = "Update check ho raha hai..."
+                checkForUpdate(manual = true)
+            }
             .show()
     }
 
@@ -402,6 +428,9 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Turns sent to the model per request; older ones are dropped from the request, not the screen. */
         const val MAX_HISTORY = 20
+
+        /** Coming back to the app within this time does not hit the site again. */
+        const val UPDATE_CHECK_GAP_MS = 60_000L
 
         const val SYSTEM_PROMPT =
             "You are Friday, a personal assistant on the user's Android phone. " +
