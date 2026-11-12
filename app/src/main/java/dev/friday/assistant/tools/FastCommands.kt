@@ -74,6 +74,12 @@ object FastCommands {
         // \p{M} keeps the vowel signs that Hindi and Gujarati words are built from; without it they split in pieces.
         val words = text.lowercase().split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.isNotEmpty() }
             .map { HEARD_AS[it] ?: it }
+        // A brand-new message to someone cannot be sent hands-free (only a notification's reply box can): say so
+        // at once instead of letting a model guess and, say, start a call.
+        if (words.any { it in setOf("whatsapp", "message", "msg", "sms", "text") } &&
+            words.any { it in setOf("karo", "bhejo", "send", "likho", "bhej", "kar") } &&
+            words.none { it in setOf("reply", "aaya", "padho", "read", "summary") }
+        ) return ToolCall("fast-nocompose", "no_compose", JSONObject())
         if (words.isEmpty() || words.size > 6) return null
         if (("kaun" in words || "kon" in words || "who" in words || "kaunsa" in words) && words.any { it in setOf("call", "phone", "calling") } &&
             words.none { it in setOf("lagao", "karo", "kar", "laga") } || ("who" in words && "calling" in words)

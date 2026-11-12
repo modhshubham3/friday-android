@@ -77,7 +77,7 @@ object Assistant {
             "only if the tool result says it was confirmed, and never without calling the tool in this very " +
             "reply, even if an earlier answer looked similar; if the result says it could not confirm, say " +
             "exactly that and tell the user to check. You can also read out the user's new WhatsApp messages and mail " +
-            "with read_messages, reply to one with reply_message (pass only the words to send; the app asks the user " +
+            "with read_messages, reply to one with reply_message (it only answers a message that arrived; you can NOT start a new message, and never use make_call for messaging) (pass only the words to send; the app asks the user " +
             "to confirm before anything is sent), sum up the day with digest, record with teach whether the last message " +
             "mattered or whether a sender should always or never be read out, switch drive_mode, and keep facts the user " +
             "tells you with remember. For an alarm like 'in 20 minutes', work out the exact " +

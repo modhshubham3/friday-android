@@ -170,6 +170,7 @@ class PhoneTools(
                 "read_messages" -> Inbox.readNew(context, call.args.optString("from").takeIf { it.isNotBlank() }, english)
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
+                "no_compose" -> "Naya message abhi main khud nahi bhej sakti. Aaye hue message ka reply kar sakti hu: bolo 'reply ok'."
                 "who_calling" -> dev.friday.assistant.inbox.CallerInfo.now()?.let { "$it call kar raha hai." } ?: "Abhi koi call nahi aa raha."
                 "teach" -> teach(call.args)
                 "drive_mode" -> driveMode(call.args.optBoolean("on", true))
