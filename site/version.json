@@ -1,1 +1,1 @@
-{"code":117,"name":"0.117","sha256":"a7ad841293f8d98f6d9aa6f0458ea40dc5ef4c9401675f1094c4ee30b5cf6011","size":2600684,"notes":"Stop fabricated tool replies and cut response time","time":"2026-11-12T08:48:40Z"}
+{"code":118,"name":"0.118","sha256":"a814fe9869322ff3154836cfd4fa06402ebdb5ef37012cb86a7220fe96b16961","size":2604809,"notes":"Race the models so a slow one no longer holds up the reply","time":"2026-11-12T08:59:45Z"}
