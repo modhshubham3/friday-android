@@ -1,1 +1,1 @@
-{"code":120,"name":"0.120","sha256":"ec2baf5f1bd4b0d787baa7a33196d92b96c2e51125b9ca49075ddbf70f3449df","size":4526921,"notes":"Add the Hey Friday wake word service","time":"2026-11-12T09:12:12Z"}
+{"code":121,"name":"0.121","sha256":"dd0ec1996ed3175fa0a626ab96ea7ec42b9be7e6b7701a6ec9bcddbf58179828","size":13004039,"notes":"Hey Friday on Vosk instead of Picovoice [publish]","time":"2026-11-12T11:37:01Z"}
