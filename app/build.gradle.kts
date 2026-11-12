@@ -8,11 +8,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.jarvis.assistant"
+        applicationId = "io.github.jarvisvoice.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 3
+        versionName = "0.3"
     }
 
     // A fixed debug keystore is committed on purpose: every CI build then carries
@@ -24,7 +24,7 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
-            // All three schemes, because some OEM installers reject v2-only APKs.
+            // v1 is skipped by the build tool anyway because minSdk is 24+.
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
