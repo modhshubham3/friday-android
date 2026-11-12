@@ -11,8 +11,10 @@ android {
         applicationId = "io.github.fridayvoice.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.8"
+        // CI passes -PvCode / -PvName so every published build is newer than the last;
+        // the in-app updater only offers a build with a higher versionCode.
+        versionCode = (findProperty("vCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("vName") as String?) ?: "dev"
     }
 
     // A fixed debug keystore is committed on purpose: every CI build then carries

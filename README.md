@@ -9,17 +9,20 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 - [ ] Week 3: "Friday" wake word + foreground service
 - [ ] Week 4: lock screen + battery-optimization handling
 
-## Setup (no Android Studio needed)
+## Install and updates
 
-1. Push to `main`. GitHub Actions builds the APK (about 3-5 minutes).
-2. On the phone, open the repo's Releases page and download `friday.apk` from "Latest build".
-3. Install it (allow "install unknown apps" for the browser when asked).
-4. Open the app, tap Settings, and paste the API key. Keys stay on the phone only.
+1. First install: open https://friday-android.vercel.app on the phone and download the APK.
+2. Open the app, tap Settings, and paste the Gemini API key. Keys stay on the phone only.
+3. After that the app updates itself: on launch it reads `version.json` from the site and
+   offers any newer build.
+
+Every push to `main` builds the APK in GitHub Actions and commits it to `site/`, which Vercel serves.
 
 ## Layout
 
 - `MainActivity.kt` - UI, SpeechRecognizer, TextToSpeech
 - `Settings.kt` - API keys and model names saved on the phone
+- `Updater.kt` - checks the site for a newer build, downloads and verifies it
 - `llm/LlmProvider.kt` - interface every model backend implements
 - `llm/LlmRouter.kt` - tries providers in order, falls over on failure
 - `llm/GeminiProvider.kt`, `llm/GroqProvider.kt` - the two free backends

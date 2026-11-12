@@ -3,10 +3,16 @@ name: Build APK
 on:
   push:
     branches: [main]
+    # CI's own "Publish APK" commit only touches site/, so it never re-triggers a build.
+    paths-ignore: ["site/**"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: apk
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,21 +27,30 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # +100 keeps build numbers above the hand-numbered builds that came before CI numbering.
       - name: Build APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          CODE=$((GITHUB_RUN_NUMBER + 100))
+          echo "CODE=$CODE" >> "$GITHUB_ENV"
+          ./gradlew assembleDebug --stacktrace -PvCode="$CODE" -PvName="0.$CODE"
 
       - uses: actions/upload-artifact@v4
         with:
           name: friday-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      # Re-publish a "latest" release so the APK is a direct download on the phone.
-      - name: Publish latest release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # The site/ folder is served by Vercel; the app reads version.json from it to self-update.
+      - name: Publish APK to the site
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk friday.apk
-          gh release delete latest --cleanup-tag --yes || true
-          gh release create latest friday.apk --prerelease \
-            --target "$GITHUB_SHA" --title "Latest build" \
-            --notes "Built from $GITHUB_SHA"
+          cp app/build/outputs/apk/debug/app-debug.apk site/friday.apk
+          SHA=$(sha256sum site/friday.apk | cut -d' ' -f1)
+          SIZE=$(stat -c%s site/friday.apk)
+          NOTE=$(git log -1 --pretty=%s | tr -d '"\\' | cut -c1-140)
+          printf '{"code":%s,"name":"0.%s","sha256":"%s","size":%s,"notes":"%s","time":"%s"}\n' \
+            "$CODE" "$CODE" "$SHA" "$SIZE" "$NOTE" "$(date -u +%FT%TZ)" > site/version.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/friday.apk site/version.json
+          git commit -m "Publish APK build $CODE"
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main

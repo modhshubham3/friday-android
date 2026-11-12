@@ -22,6 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.friday.assistant.llm.GeminiProvider
 import dev.friday.assistant.llm.GroqProvider
 import dev.friday.assistant.llm.LlmRouter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -51,6 +52,9 @@ class MainActivity : ComponentActivity() {
         ),
     )
 
+    /** Set while we wait for the user to allow "install unknown apps". */
+    private var pendingUpdate: Updater.Update? = null
+
     private val askMicPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startListening() else status.text = "Mic permission ke bina kaam nahi chalega"
@@ -77,6 +81,8 @@ class MainActivity : ComponentActivity() {
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendTyped(); true } else false
         }
 
+        checkForUpdate()
+
         talkButton.setOnClickListener {
             val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
@@ -101,6 +107,48 @@ class MainActivity : ComponentActivity() {
         talkButton.isEnabled = false
         status.text = "Sun raha hu..."
         sr.startListening(intent)
+    }
+
+    private fun checkForUpdate() {
+        lifecycleScope.launch {
+            // A failed check (offline, site down) must never block using the app.
+            val update = runCatching { Updater.check(this@MainActivity) }.getOrNull() ?: return@launch
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Naya version ${update.name}")
+                .setMessage(update.notes.ifBlank { "Friday ka naya build available hai." })
+                .setPositiveButton("Update") { _, _ -> startUpdate(update) }
+                .setNegativeButton("Baad mein", null)
+                .show()
+        }
+    }
+
+    private fun startUpdate(update: Updater.Update) {
+        if (!Updater.canInstall(this)) {
+            pendingUpdate = update // resumed in onResume once the switch is on
+            status.text = "Friday ko 'Install unknown apps' allow karo, phir wapas aao"
+            Updater.openInstallPermission(this)
+            return
+        }
+        pendingUpdate = null
+        lifecycleScope.launch {
+            try {
+                val apk = Updater.download(this@MainActivity, update) { pct ->
+                    status.text = "Update download ho raha hai: $pct%"
+                }
+                status.text = "Installer khul raha hai..."
+                Updater.install(this@MainActivity, apk)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status.text = "Update fail: ${e.message}"
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val update = pendingUpdate ?: return
+        if (Updater.canInstall(this)) startUpdate(update)
     }
 
     private fun sendTyped() {
