@@ -38,6 +38,10 @@ class Settings(context: Context) {
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()
 
+    var lookId: String
+        get() = prefs.getString("look", null) ?: "std"
+        set(v) = prefs.edit().putString("look", v).apply()
+
     var sizeId: String
         get() = prefs.getString("size", null) ?: "m"
         set(v) = prefs.edit().putString("size", v).apply()

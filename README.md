@@ -7,6 +7,8 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 - [x] Typed chat and push-to-talk with Gemini model chain, Groq fallback
 - [x] Chat bubbles, 8 colour themes, 4 text sizes, conversation history
 - [x] In-app updates
+- [x] Five looks (Standard, Animated, Minimal, iOS Dark, iOS Light), icon buttons with motion
+- [x] Chats saved on the phone, with a list of old chats
 - [ ] Week 2: tool calling (alarm, call, flashlight, music)
 - [ ] Week 3: "Friday" wake word + foreground service
 - [ ] Week 4: lock screen + battery-optimization handling
@@ -24,7 +26,8 @@ Every push to `main` builds the APK in GitHub Actions and commits it to `site/`,
 
 - `MainActivity.kt` - UI, SpeechRecognizer, TextToSpeech
 - `Settings.kt` - API keys, model names, theme and text size saved on the phone
-- `Look.kt` - colour themes and text sizes
+- `Look.kt` - colour themes, looks and text sizes, combined into one Style
+- `ChatStore.kt` - saved chats, one JSON file each
 - `Updater.kt` - checks the site for a newer build, downloads and verifies it
 - `llm/LlmProvider.kt` - interface every model backend implements
 - `llm/LlmRouter.kt` - tries providers in order, falls over on failure

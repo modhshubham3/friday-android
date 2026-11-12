@@ -17,6 +17,29 @@ data class Palette(
     val accent: Int,  // buttons, your bubbles
 )
 
+/** A whole-app style layered on top of the colour theme. */
+data class AppLook(val id: String, val label: String)
+
+/**
+ * The final answer to "how should the screen be painted", after the theme, the look
+ * and the text size are combined. Views read only this, never the raw settings.
+ */
+data class Style(
+    val bg: Int,
+    val surface: Int,
+    val line: Int,
+    val ink: Int,
+    val mute: Int,
+    val accent: Int,
+    val onAccent: Int,          // text or icon drawn on top of the accent colour
+    val bubbleRadiusDp: Float,
+    val plainReplies: Boolean,  // Friday's replies as bare text, no bubble
+    val lightFont: Boolean,
+    val lightBars: Boolean,     // true on a light background: dark status-bar icons
+    val lively: Boolean,        // bigger, bouncier motion
+    val scale: Float,
+)
+
 data class TextSize(val id: String, val label: String, val scale: Float)
 
 object Look {
@@ -40,6 +63,41 @@ object Look {
         TextSize("l", "Bada", 1.12f),
         TextSize("xl", "Bahut bada", 1.25f),
     )
+
+    val LOOKS = listOf(
+        AppLook("std", "Standard"),
+        AppLook("anim", "Animated"),
+        AppLook("min", "Minimal"),
+        AppLook("ios", "iOS Dark"),
+        AppLook("iosl", "iOS Light"),
+    )
+
+    /** The two iOS looks bring their own colours and ignore the theme, as in the health app. */
+    fun style(themeId: String, lookId: String, sizeId: String): Style {
+        val p = theme(themeId)
+        val scale = size(sizeId).scale
+        return when (lookId) {
+            "ios" -> Style(
+                bg = c("#000000"), surface = c("#1c1c1e"), line = c("#38383a"), ink = c("#ffffff"),
+                mute = c("#8e8e93"), accent = c("#0a84ff"), onAccent = c("#ffffff"),
+                bubbleRadiusDp = 20f, plainReplies = false, lightFont = false, lightBars = false,
+                lively = false, scale = scale,
+            )
+            "iosl" -> Style(
+                bg = c("#f2f2f7"), surface = c("#ffffff"), line = c("#d1d1d6"), ink = c("#000000"),
+                mute = c("#6c6c70"), accent = c("#007aff"), onAccent = c("#ffffff"),
+                bubbleRadiusDp = 20f, plainReplies = false, lightFont = false, lightBars = true,
+                lively = false, scale = scale,
+            )
+            else -> Style(
+                bg = p.bg, surface = p.surface, line = p.line, ink = p.ink, mute = p.mute,
+                accent = p.accent, onAccent = p.bg,
+                bubbleRadiusDp = if (lookId == "min") 12f else 18f,
+                plainReplies = lookId == "min", lightFont = lookId == "min", lightBars = false,
+                lively = lookId == "anim", scale = scale,
+            )
+        }
+    }
 
     fun theme(id: String) = THEMES.firstOrNull { it.id == id } ?: THEMES[0]
     fun size(id: String) = SIZES.firstOrNull { it.id == id } ?: SIZES[1]
