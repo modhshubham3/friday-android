@@ -102,26 +102,26 @@ class MainActivity : ComponentActivity() {
     private var updateDialogShowing = false
     private var lastUpdateCheck = 0L
 
-    private var contactsAnswer: CompletableDeferred<Boolean>? = null
-    private val askContacts =
+    private var permissionAnswer: CompletableDeferred<Boolean>? = null
+    private val askPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            contactsAnswer?.complete(granted)
+            permissionAnswer?.complete(granted)
         }
 
     /** Suspends the running tool until the user answers the permission prompt. */
-    private suspend fun ensureContacts(): Boolean {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) ==
-            PackageManager.PERMISSION_GRANTED
-        ) return true
+    private suspend fun ensurePermission(permission: String): Boolean {
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) return true
         val answer = CompletableDeferred<Boolean>()
-        contactsAnswer = answer
-        askContacts.launch(Manifest.permission.READ_CONTACTS)
+        permissionAnswer = answer
+        askPermission.launch(permission)
         return answer.await()
     }
 
     /** The questions tools put to the user: pick from a list, or confirm before removing something. */
     private val prompts = object : UserPrompts {
-        override suspend fun ensureContacts() = this@MainActivity.ensureContacts()
+        override suspend fun ensureContacts() = ensurePermission(Manifest.permission.READ_CONTACTS)
+
+        override suspend fun ensureCallPhone() = ensurePermission(Manifest.permission.CALL_PHONE)
 
         override suspend fun choose(title: String, options: List<String>): Int? =
             suspendCancellableCoroutine { cont ->
@@ -679,6 +679,16 @@ class MainActivity : ComponentActivity() {
             addView(label("Theme (iOS looks ke apne colours hain)")); addView(themePicker)
             addView(label("Text ka size")); addView(sizePicker)
             clockPicker?.let { addView(label("Alarm ke liye Clock app")); addView(it) }
+            if (settings.savedContactCount > 0) {
+                addView(TextView(this@MainActivity).apply {
+                    text = "Yaad rakhe contacts: ${settings.savedContactCount} (bhulane ke liye yahan tap karo)"
+                    setPadding(0, dp(12f).toInt(), 0, 0)
+                    setOnClickListener {
+                        settings.clearSavedContacts()
+                        text = "Yaad rakhe hue contacts saaf kar diye"
+                    }
+                })
+            }
             addView(label("AI models"))
             listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
         }
@@ -725,7 +735,7 @@ class MainActivity : ComponentActivity() {
                 "short and conversational with no markdown, lists, or emojis. Reply in Hinglish (Hindi " +
                 "written in Roman script mixed with English) unless the user writes pure English. " +
                 "You can set and cancel alarms, start phone calls and switch the flashlight with your tools. " +
-                "Never guess a missing detail. If the time (including AM or PM), the contact or the alarm " +
+                "When a request is clear, act on it without asking for confirmation. Never guess a missing detail: if the time (including AM or PM), the contact or the alarm " +
                 "is unclear, ask one short question first and wait for the answer. To remove an alarm you " +
                 "need its exact time: if the user does not give it, use get_next_alarm and ask whether that " +
                 "is the one. Say a task is done only if the tool result says it was confirmed; if the " +

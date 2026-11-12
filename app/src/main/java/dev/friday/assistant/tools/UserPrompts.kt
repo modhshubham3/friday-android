@@ -8,6 +8,9 @@ interface UserPrompts {
     /** Asks for the contacts permission, returning whether it was granted. */
     suspend fun ensureContacts(): Boolean
 
+    /** Asks for the permission to place calls directly, returning whether it was granted. */
+    suspend fun ensureCallPhone(): Boolean
+
     /** Shows [options] and returns the index the user tapped, or null if they backed out. */
     suspend fun choose(title: String, options: List<String>): Int?
 

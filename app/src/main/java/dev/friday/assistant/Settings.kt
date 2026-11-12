@@ -1,6 +1,10 @@
 package dev.friday.assistant
 
 import android.content.Context
+import org.json.JSONObject
+
+/** A contact the user picked once, so the same words next time go straight to them. */
+data class SavedContact(val name: String, val number: String)
 
 /**
  * API keys and model names, entered once inside the app.
@@ -38,6 +42,23 @@ class Settings(context: Context) {
     var alarmPackage: String?
         get() = prefs.getString("alarm_pkg", null)
         set(v) = prefs.edit().apply { if (v == null) remove("alarm_pkg") else putString("alarm_pkg", v) }.apply()
+
+    /** [key] is the spoken name with punctuation and doubled letters removed, so "Gauri" and "gauri" share an entry. */
+    fun savedContact(key: String): SavedContact? = runCatching {
+        JSONObject(prefs.getString("contact_choices", "{}")).optJSONObject(key)
+            ?.let { SavedContact(it.getString("name"), it.getString("number")) }
+    }.getOrNull()
+
+    fun saveContact(key: String, contact: SavedContact) {
+        val all = runCatching { JSONObject(prefs.getString("contact_choices", "{}")) }.getOrDefault(JSONObject())
+        all.put(key, JSONObject().put("name", contact.name).put("number", contact.number))
+        prefs.edit().putString("contact_choices", all.toString()).apply()
+    }
+
+    val savedContactCount: Int
+        get() = runCatching { JSONObject(prefs.getString("contact_choices", "{}")).length() }.getOrDefault(0)
+
+    fun clearSavedContacts() = prefs.edit().remove("contact_choices").apply()
 
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"

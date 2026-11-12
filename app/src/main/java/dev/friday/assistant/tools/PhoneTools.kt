@@ -9,6 +9,7 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.ContactsContract
 import androidx.activity.ComponentActivity
+import dev.friday.assistant.SavedContact
 import dev.friday.assistant.Settings
 import dev.friday.assistant.llm.ToolCall
 import dev.friday.assistant.llm.ToolSpec
@@ -69,9 +70,9 @@ class PhoneTools(
         ),
         ToolSpec(
             "make_call",
-            "Start a phone call by opening the dialer with the number filled in. " +
-                "Pass the contact's name as the user said it, or a phone number. " +
-                "The app shows the user a list when the name is unclear.",
+            "Place a phone call right away. Pass the contact's name as the user said it, or a phone number. " +
+                "The app shows the user a list when the name is unclear and remembers the answer, " +
+                "so do not ask the user to confirm a clear request yourself.",
             schema(
                 required = listOf("name_or_number"),
                 "name_or_number" to prop("string", "Contact name or phone number"),
@@ -240,53 +241,67 @@ class PhoneTools(
 
     private data class Contact(val name: String, val numbers: List<String>, val score: Int)
 
+    private fun digits(number: String) = number.filter { it.isDigit() }
+    private fun sameNumber(a: String, b: String) = digits(a) == digits(b)
+
     private suspend fun makeCall(target: String): String {
         val raw = target.trim()
         if (raw.isEmpty()) return "Error: kisko call karna hai?"
 
-        val number: String
-        val who: String
-        if (Regex("^[+0-9 ()-]{5,}$").matches(raw)) {
-            number = raw
-            who = raw
-        } else {
-            if (!prompts.ensureContacts()) {
-                return "Error: contacts ki permission nahi mili, naam se call nahi kar sakta. Number bolo"
-            }
-            val matches = findContacts(raw)
-            if (matches.isEmpty()) return "Error: '$raw' se milta koi contact nahi mila. User se poocho kaunsa naam hai"
-            // One clear match goes straight to the dialer. Anything fuzzy, or several candidates,
-            // is the user's call to make, from a list, and never a guess.
-            val sure = matches.singleOrNull()?.takeIf { it.score <= 1 }
-            val contact = sure ?: run {
-                val index = prompts.choose("Kisko call karun?", matches.map { it.name })
-                    ?: return "User ne koi contact nahi chuna, call nahi kiya"
-                matches[index]
-            }
-            who = contact.name
-            number = if (contact.numbers.size == 1) {
-                contact.numbers[0]
-            } else {
-                val index = prompts.choose("${contact.name}: kaunsa number?", contact.numbers)
-                    ?: return "User ne number nahi chuna, call nahi kiya"
-                contact.numbers[index]
-            }
+        // A number needs no lookup.
+        if (Regex("^[+0-9 ()-]{5,}$").matches(raw)) return placeCall(raw, raw)
+
+        if (!prompts.ensureContacts()) {
+            return "Error: contacts ki permission nahi mili, naam se call nahi kar sakta. Number bolo"
         }
-        // ACTION_DIAL opens the dialer and leaves the final tap to the user. A misheard name
-        // must not ring the wrong person on its own.
-        val dial = number.filter { it.isDigit() || it == '+' }
-        activity.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", dial, null)))
-        return "Dialer $who ke number ke saath khul gaya, user ko call ka button dabana hai"
+        val book = loadContacts()
+        val key = normalize(raw)
+
+        // A choice the user made before is never asked again, as long as that contact still exists.
+        settings.savedContact(key)?.let { saved ->
+            if (book[saved.name]?.any { sameNumber(it, saved.number) } == true) return placeCall(saved.number, saved.name)
+        }
+
+        val matches = rank(book, raw)
+        if (matches.isEmpty()) return "Error: '$raw' se milta koi contact nahi mila. User se poocho kaunsa naam hai"
+
+        // One clear match is called at once. Anything fuzzy, or several candidates, is the user's
+        // call to make from a list, never a guess, and the answer is remembered.
+        var userChose = false
+        val sure = matches.singleOrNull()?.takeIf { it.score <= 1 }
+        val contact = sure ?: run {
+            userChose = true
+            val index = prompts.choose("Kisko call karun?", matches.map { it.name })
+                ?: return "User ne koi contact nahi chuna, call nahi kiya"
+            matches[index]
+        }
+        val number = if (contact.numbers.size == 1) {
+            contact.numbers[0]
+        } else {
+            userChose = true
+            val index = prompts.choose("${contact.name}: kaunsa number?", contact.numbers)
+                ?: return "User ne number nahi chuna, call nahi kiya"
+            contact.numbers[index]
+        }
+        if (userChose) settings.saveContact(key, SavedContact(contact.name, number))
+        return placeCall(number, contact.name)
     }
 
-    /**
-     * Best matches first. Names are compared with punctuation, emoji and doubled letters removed,
-     * so "matashree" finds "Maatashree ❤️". Score 0 is the same name, 1 contains it, 2 is a near miss.
-     */
-    private suspend fun findContacts(query: String): List<Contact> = withContext(Dispatchers.IO) {
-        val q = normalize(query)
-        if (q.isEmpty()) return@withContext emptyList()
-        val numbersByName = linkedMapOf<String, MutableList<String>>()
+    /** Rings straight away when the call permission is granted, and falls back to the dialer when it is not. */
+    private suspend fun placeCall(number: String, who: String): String {
+        val uri = Uri.fromParts("tel", number.filter { it.isDigit() || it == '+' }, null)
+        return if (prompts.ensureCallPhone()) {
+            activity.startActivity(Intent(Intent.ACTION_CALL, uri))
+            "$who ko call lagayi ja rahi hai (Android ko call shuru karne ki request di)"
+        } else {
+            activity.startActivity(Intent(Intent.ACTION_DIAL, uri))
+            "Call ki permission nahi mili, isliye dialer $who ke number ke saath khola; user ko call ka button dabana hai"
+        }
+    }
+
+    /** Every contact with a phone number: display name to its distinct numbers. */
+    private suspend fun loadContacts(): Map<String, List<String>> = withContext(Dispatchers.IO) {
+        val book = linkedMapOf<String, MutableList<String>>()
         activity.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(
@@ -298,12 +313,21 @@ class PhoneTools(
             while (c.moveToNext()) {
                 val name = c.getString(0) ?: continue
                 val number = c.getString(1) ?: continue
-                val list = numbersByName.getOrPut(name) { mutableListOf() }
-                val digits = number.filter { it.isDigit() }
-                if (list.none { it.filter { ch -> ch.isDigit() } == digits }) list += number
+                val list = book.getOrPut(name) { mutableListOf() }
+                if (list.none { sameNumber(it, number) }) list += number
             }
         }
-        numbersByName.mapNotNull { (name, numbers) ->
+        book
+    }
+
+    /**
+     * Best matches first. Names are compared with punctuation, emoji and doubled letters removed,
+     * so "matashree" finds "Maatashree ❤️". Score 0 is the same name, 1 contains it, 2 is a near miss.
+     */
+    private fun rank(book: Map<String, List<String>>, query: String): List<Contact> {
+        val q = normalize(query)
+        if (q.isEmpty()) return emptyList()
+        return book.mapNotNull { (name, numbers) ->
             val n = normalize(name)
             val score = when {
                 n == q -> 0
