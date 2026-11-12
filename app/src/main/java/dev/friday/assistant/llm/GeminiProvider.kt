@@ -10,13 +10,15 @@ class GeminiProvider(
     override val name = "Gemini $model"
     override val isConfigured get() = apiKey.isNotBlank()
 
-    override suspend fun chat(systemPrompt: String, userText: String): Result<String> {
+    override suspend fun chat(systemPrompt: String, history: List<ChatMessage>): Result<String> {
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", parts(systemPrompt)))
-            .put(
-                "contents",
-                JSONArray().put(JSONObject().put("role", "user").put("parts", parts(userText))),
-            )
+            .put("contents", JSONArray().apply {
+                // Gemini calls the assistant side "model".
+                history.forEach {
+                    put(JSONObject().put("role", if (it.fromUser) "user" else "model").put("parts", parts(it.text)))
+                }
+            })
             .toString()
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"

@@ -11,10 +11,12 @@ class GroqProvider(
     override val name = "Groq"
     override val isConfigured get() = apiKey.isNotBlank()
 
-    override suspend fun chat(systemPrompt: String, userText: String): Result<String> {
+    override suspend fun chat(systemPrompt: String, history: List<ChatMessage>): Result<String> {
         val messages = JSONArray()
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
-            .put(JSONObject().put("role", "user").put("content", userText))
+        history.forEach {
+            messages.put(JSONObject().put("role", if (it.fromUser) "user" else "assistant").put("content", it.text))
+        }
         val body = JSONObject().put("model", model).put("messages", messages).toString()
 
         return postJson(

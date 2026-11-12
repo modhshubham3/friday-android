@@ -34,6 +34,14 @@ class Settings(context: Context) {
         get() = prefs.getString("groq_model", null) ?: "llama-3.3-70b-versatile"
         set(v) = prefs.edit().putString("groq_model", v.trim()).apply()
 
+    var themeId: String
+        get() = prefs.getString("theme", null) ?: "classic"
+        set(v) = prefs.edit().putString("theme", v).apply()
+
+    var sizeId: String
+        get() = prefs.getString("size", null) ?: "m"
+        set(v) = prefs.edit().putString("size", v).apply()
+
     private companion object {
         const val DEFAULT_GEMINI_MODELS =
             "gemini-3.5-flash,gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-flash-lite-latest,gemini-flash-latest"

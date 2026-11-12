@@ -4,21 +4,28 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.text.InputType
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.llm.GeminiProvider
 import dev.friday.assistant.llm.GroqProvider
 import dev.friday.assistant.llm.LlmRouter
@@ -27,16 +34,31 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * Week 1: push-to-talk.
- * Button -> SpeechRecognizer (voice to text) -> LlmRouter -> TextToSpeech.
+ * The chat screen. A question arrives typed or spoken (SpeechRecognizer), goes to
+ * LlmRouter together with the conversation so far, and the reply is shown as a
+ * bubble and, for spoken questions, read aloud (TextToSpeech).
  */
 class MainActivity : ComponentActivity() {
 
+    private lateinit var root: View
+    private lateinit var title: TextView
     private lateinit var status: TextView
-    private lateinit var transcript: TextView
-    private lateinit var talkButton: Button
+    private lateinit var divider: View
+    private lateinit var scroll: ScrollView
+    private lateinit var messages: LinearLayout
     private lateinit var input: EditText
-    private lateinit var sendButton: Button
+    private lateinit var talkButton: TextView
+    private lateinit var sendButton: TextView
+    private lateinit var newChatButton: TextView
+    private lateinit var settingsButton: TextView
+
+    /** What a bubble on screen holds. Only USER and FRIDAY are sent to the model. */
+    private enum class Kind { USER, FRIDAY, ERROR }
+    private data class Bubble(val kind: Kind, val text: String)
+
+    /** Everything on screen, oldest first. Kept in memory only: closing the app clears it. */
+    private val bubbles = mutableListOf<Bubble>()
+    private var busy = false
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
@@ -62,10 +84,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         settings = Settings(this)
-        findViewById<Button>(R.id.settingsButton).setOnClickListener { showSettings() }
+        root = findViewById(R.id.root)
+        title = findViewById(R.id.title)
         status = findViewById(R.id.status)
-        transcript = findViewById(R.id.transcript)
+        divider = findViewById(R.id.divider)
+        scroll = findViewById(R.id.scroll)
+        messages = findViewById(R.id.messages)
         talkButton = findViewById(R.id.talkButton)
+        newChatButton = findViewById(R.id.newChatButton)
+        settingsButton = findViewById(R.id.settingsButton)
+        settingsButton.setOnClickListener { showSettings() }
+        newChatButton.setOnClickListener {
+            if (!busy) {
+                bubbles.clear()
+                renderBubbles()
+                status.text = getString(R.string.idle)
+            }
+        }
 
         tts = TextToSpeech(this) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
@@ -79,9 +114,11 @@ class MainActivity : ComponentActivity() {
             if (actionId == EditorInfo.IME_ACTION_SEND) { sendTyped(); true } else false
         }
 
+        applyLook()
         checkForUpdate()
 
         talkButton.setOnClickListener {
+            if (busy) return@setOnClickListener
             val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
             if (granted) startListening() else askMicPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -102,7 +139,7 @@ class MainActivity : ComponentActivity() {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        talkButton.isEnabled = false
+        setBusy(true)
         status.text = "Sun raha hu..."
         sr.startListening(intent)
     }
@@ -151,25 +188,132 @@ class MainActivity : ComponentActivity() {
 
     private fun sendTyped() {
         val text = input.text.toString().trim()
-        if (text.isEmpty() || !sendButton.isEnabled) return
+        if (text.isEmpty() || busy) return
         input.text.clear()
         onHeard(text, speak = false) // typed questions get a silent, on-screen answer
     }
 
     private fun onHeard(text: String, speak: Boolean = true) {
-        transcript.append("Tum: $text\n")
+        addBubble(Bubble(Kind.USER, text))
         status.text = "Soch raha hu..."
-        talkButton.isEnabled = false
-        sendButton.isEnabled = false
+        setBusy(true)
         lifecycleScope.launch {
-            val reply = buildRouter().ask(SYSTEM_PROMPT, text)
-            // No Android Studio means no logcat, so failures are printed on screen.
-            reply.errors.forEach { transcript.append("[error] $it\n") }
-            transcript.append("Friday: ${reply.text}\n\n")
+            val reply = buildRouter().ask(SYSTEM_PROMPT, historyForModel())
+            // No Android Studio means no logcat, so failures are shown on screen.
+            reply.errors.forEach { addBubble(Bubble(Kind.ERROR, it)) }
+            // A canned "nobody answered" line is not Friday speaking, so it must not enter the history.
+            addBubble(Bubble(if (reply.provider != null) Kind.FRIDAY else Kind.ERROR, reply.text))
             status.text = reply.provider?.let { "Jawab: $it" } ?: getString(R.string.idle)
-            talkButton.isEnabled = true
-            sendButton.isEnabled = true
+            setBusy(false)
             if (speak && ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
+        }
+    }
+
+    /**
+     * The conversation as the model should see it: no error bubbles, starting with a
+     * user turn, and only the most recent turns so requests stay small and cheap.
+     */
+    private fun historyForModel(): List<ChatMessage> =
+        bubbles.filter { it.kind != Kind.ERROR }
+            .map { ChatMessage(fromUser = it.kind == Kind.USER, text = it.text) }
+            // A failed question leaves two user turns in a row; keep only the newer one.
+            .fold(mutableListOf<ChatMessage>()) { acc, m ->
+                if (acc.isNotEmpty() && acc.last().fromUser == m.fromUser) acc[acc.lastIndex] = m else acc += m
+                acc
+            }
+            .takeLast(MAX_HISTORY)
+            .dropWhile { !it.fromUser }
+
+    private fun setBusy(value: Boolean) {
+        busy = value
+        val alpha = if (value) 0.45f else 1f
+        talkButton.alpha = alpha
+        sendButton.alpha = alpha
+    }
+
+    // ---- Look: theme colours and text size --------------------------------
+
+    private fun dp(value: Float) = value * resources.displayMetrics.density
+
+    private fun rounded(color: Int, radiusDp: Float, strokeColor: Int? = null) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radiusDp)
+        if (strokeColor != null) setStroke(dp(1f).toInt().coerceAtLeast(1), strokeColor)
+    }
+
+    /** Paints every fixed view from the chosen theme and size, then redraws the bubbles. */
+    private fun applyLook() {
+        val p = Look.theme(settings.themeId)
+        val scale = Look.size(settings.sizeId).scale
+        fun TextView.sp(size: Float) = setTextSize(TypedValue.COMPLEX_UNIT_SP, size * scale)
+
+        root.setBackgroundColor(p.bg)
+        divider.setBackgroundColor(p.line)
+        title.setTextColor(p.ink); title.sp(20f)
+        status.setTextColor(p.mute); status.sp(12f)
+        for (link in listOf(newChatButton, settingsButton)) { link.setTextColor(p.accent); link.sp(14f) }
+
+        input.background = rounded(p.surface, 24f, p.line)
+        input.setTextColor(p.ink); input.setHintTextColor(p.mute); input.sp(16f)
+
+        // Filled buttons carry dark text because every accent colour is a light one.
+        sendButton.background = rounded(p.accent, 24f)
+        sendButton.setTextColor(p.bg); sendButton.sp(15f)
+        talkButton.background = rounded(p.surface, 24f, p.accent)
+        talkButton.setTextColor(p.accent); talkButton.sp(15f)
+
+        renderBubbles()
+    }
+
+    private fun renderBubbles() {
+        messages.removeAllViews()
+        bubbles.forEach { messages.addView(bubbleView(it)) }
+        scrollToEnd()
+    }
+
+    private fun addBubble(bubble: Bubble) {
+        bubbles += bubble
+        messages.addView(bubbleView(bubble))
+        scrollToEnd()
+    }
+
+    private fun scrollToEnd() = scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+
+    private fun bubbleView(b: Bubble): View {
+        val p = Look.theme(settings.themeId)
+        val scale = Look.size(settings.sizeId).scale
+        val padH = dp(14f).toInt()
+        val padV = dp(10f).toInt()
+        return TextView(this).apply {
+            text = b.text
+            setTextIsSelectable(true)
+            setPadding(padH, padV, padH, padV)
+            // Bubbles stop at 82% of the screen so it is clear at a glance who said what.
+            maxWidth = (resources.displayMetrics.widthPixels * 0.82f).toInt()
+            when (b.kind) {
+                Kind.USER -> {
+                    background = rounded(p.accent, 18f)
+                    setTextColor(p.bg)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f * scale)
+                }
+                Kind.FRIDAY -> {
+                    background = rounded(p.surface, 18f, p.line)
+                    setTextColor(p.ink)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f * scale)
+                }
+                Kind.ERROR -> {
+                    background = rounded(p.bg, 12f, p.line)
+                    setTextColor(p.mute)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f * scale)
+                }
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                gravity = if (b.kind == Kind.USER) Gravity.END else Gravity.START
+                bottomMargin = dp(8f).toInt()
+            }
         }
     }
 
@@ -185,16 +329,32 @@ class MainActivity : ComponentActivity() {
         val geminiModel = field("Gemini models (comma se alag)", settings.geminiModel)
         val groqKey = field("Groq API key (optional)", settings.groqKey, secret = true)
         val groqModel = field("Groq model", settings.groqModel)
-        val pad = (20 * resources.displayMetrics.density).toInt()
+        fun picker(labels: List<String>, selected: Int) = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, labels)
+            setSelection(selected.coerceAtLeast(0))
+        }
+        fun label(text: String) = TextView(this).apply {
+            this.text = text
+            setPadding(0, dp(12f).toInt(), 0, 0)
+        }
+        val themePicker = picker(Look.THEMES.map { it.label }, Look.THEMES.indexOfFirst { it.id == settings.themeId })
+        val sizePicker = picker(Look.SIZES.map { it.label }, Look.SIZES.indexOfFirst { it.id == settings.sizeId })
+        val pad = dp(20f).toInt()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
+            addView(label("Theme")); addView(themePicker)
+            addView(label("Text ka size")); addView(sizePicker)
+            addView(label("AI models"))
             listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
         }
         AlertDialog.Builder(this)
             .setTitle(R.string.settings)
-            .setView(form)
+            .setView(ScrollView(this).apply { addView(form) })
             .setPositiveButton(android.R.string.ok) { _, _ ->
+                settings.themeId = Look.THEMES[themePicker.selectedItemPosition].id
+                settings.sizeId = Look.SIZES[sizePicker.selectedItemPosition].id
+                applyLook()
                 settings.geminiKey = geminiKey.text.toString()
                 settings.geminiModel = geminiModel.text.toString()
                 settings.groqKey = groqKey.text.toString()
@@ -221,7 +381,7 @@ class MainActivity : ComponentActivity() {
                 SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network problem"
                 else -> "Speech error (code $error)"
             }
-            talkButton.isEnabled = true
+            setBusy(false)
         }
 
         override fun onReadyForSpeech(params: Bundle?) {}
@@ -240,10 +400,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
+        /** Turns sent to the model per request; older ones are dropped from the request, not the screen. */
+        const val MAX_HISTORY = 20
+
         const val SYSTEM_PROMPT =
-            "You are Friday, a voice assistant on the user's Android phone. " +
-                "Your reply is read aloud by text-to-speech, so answer in one to three short " +
-                "sentences with no markdown, lists, or emojis. Reply in Hinglish (Hindi written " +
-                "in Roman script mixed with English) unless the user speaks pure English."
+            "You are Friday, a personal assistant on the user's Android phone. " +
+                "Replies appear in a small chat bubble and are sometimes read aloud, so keep them " +
+                "short and conversational with no markdown, lists, or emojis. Reply in Hinglish (Hindi " +
+                "written in Roman script mixed with English) unless the user writes pure English."
     }
 }

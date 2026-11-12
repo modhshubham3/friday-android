@@ -1,8 +1,9 @@
 <resources>
     <string name="app_name">Friday</string>
     <string name="talk">Bolo</string>
+    <string name="send">Bhejo</string>
     <string name="idle">Likho ya Bolo dabao</string>
     <string name="settings">Settings</string>
+    <string name="new_chat">Naya chat</string>
     <string name="type_hint">Yahan likho</string>
-    <string name="send">Bhejo</string>
 </resources>

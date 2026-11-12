@@ -13,13 +13,13 @@ class LlmRouter(providers: List<LlmProvider>) {
     /** [errors] lists why each earlier provider failed, for showing on screen. */
     data class Reply(val text: String, val provider: String?, val errors: List<String>)
 
-    suspend fun ask(systemPrompt: String, userText: String): Reply {
+    suspend fun ask(systemPrompt: String, history: List<ChatMessage>): Reply {
         if (active.isEmpty()) {
             return Reply("API key nahi mili. Settings mein key daalo.", null, emptyList())
         }
         val errors = mutableListOf<String>()
         for (p in active) {
-            val result = chatWithRetry(p, systemPrompt, userText)
+            val result = chatWithRetry(p, systemPrompt, history)
             result.onSuccess { return Reply(it, p.name, errors) }
             errors += "${p.name}: ${result.exceptionOrNull()?.message ?: "unknown error"}"
         }
@@ -32,13 +32,17 @@ class LlmRouter(providers: List<LlmProvider>) {
      * Other failures (bad key, unknown model, rate limit) will not fix themselves,
      * so they fall through to the next provider at once.
      */
-    private suspend fun chatWithRetry(p: LlmProvider, systemPrompt: String, userText: String): Result<String> {
-        var result = p.chat(systemPrompt, userText)
+    private suspend fun chatWithRetry(
+        p: LlmProvider,
+        systemPrompt: String,
+        history: List<ChatMessage>,
+    ): Result<String> {
+        var result = p.chat(systemPrompt, history)
         for (pauseMs in RETRY_PAUSES_MS) {
             val code = (result.exceptionOrNull() as? LlmHttpException)?.code ?: break
             if (code !in 500..599) break
             delay(pauseMs)
-            result = p.chat(systemPrompt, userText)
+            result = p.chat(systemPrompt, history)
         }
         return result
     }
