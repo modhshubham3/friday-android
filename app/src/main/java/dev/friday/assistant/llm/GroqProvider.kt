@@ -7,8 +7,9 @@ import org.json.JSONObject
 class GroqProvider(
     private val apiKey: String,
     private val model: String,
+    override val name: String = "Groq",
+    private val url: String = "https://api.groq.com/openai/v1/chat/completions",
 ) : LlmProvider {
-    override val name = "Groq"
     override val isConfigured get() = apiKey.isNotBlank()
 
     override suspend fun chat(
@@ -31,7 +32,7 @@ class GroqProvider(
         }
 
         return postJson(
-            "https://api.groq.com/openai/v1/chat/completions",
+            url,
             mapOf("Authorization" to "Bearer $apiKey"),
             body.toString(),
         ).mapCatching { raw ->
@@ -51,7 +52,7 @@ class GroqProvider(
                     )
                 }
             }
-            if (text.isEmpty() && calls.isEmpty()) error("Groq returned an empty reply")
+            if (text.isEmpty() && calls.isEmpty()) error("$name returned an empty reply")
             ModelReply(text, calls)
         }
     }

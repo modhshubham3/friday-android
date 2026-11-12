@@ -931,6 +931,7 @@ class MainActivity : ComponentActivity() {
         val geminiModel = field("Gemini models (comma se alag)", settings.geminiModel)
         val groqKey = field("Groq API key (optional)", settings.groqKey, secret = true)
         val groqModel = field("Groq model", settings.groqModel)
+        val extra = field("Extra models (har line: naam,url,model,key)", settings.extraProviders)
         val lookPicker = picker(Look.LOOKS.map { it.label }, Look.LOOKS.indexOfFirst { it.id == settings.lookId })
         val themePicker = picker(Look.THEMES.map { it.label }, Look.THEMES.indexOfFirst { it.id == settings.themeId })
         val sizePicker = picker(Look.SIZES.map { it.label }, Look.SIZES.indexOfFirst { it.id == settings.sizeId })
@@ -979,7 +980,7 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener { showVoiceSetup() }
             })
             addView(label("AI models"))
-            listOf(geminiKey, geminiModel, groqKey, groqModel).forEach(::addView)
+            listOf(geminiKey, geminiModel, groqKey, groqModel, extra).forEach(::addView)
         }
         AlertDialog.Builder(this)
             .setTitle("Settings (build ${Updater.installedCode(this)})")
@@ -995,6 +996,7 @@ class MainActivity : ComponentActivity() {
                 settings.geminiModel = geminiModel.text.toString()
                 settings.groqKey = groqKey.text.toString()
                 settings.groqModel = groqModel.text.toString()
+                settings.extraProviders = extra.text.toString()
                 applyLook()
             }
             .setNegativeButton(android.R.string.cancel, null)

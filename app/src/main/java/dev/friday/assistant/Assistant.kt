@@ -15,8 +15,15 @@ object Assistant {
     /** Built per question so a key changed in Settings applies immediately. */
     fun router(settings: Settings) = LlmRouter(
         settings.geminiModels.map { GeminiProvider(settings.geminiKey, it) } +
-            GroqProvider(settings.groqKey, settings.groqModel),
+            GroqProvider(settings.groqKey, settings.groqModel) +
+            extraProviders(settings),
     )
+
+    private fun extraProviders(settings: Settings): List<LlmProvider> =
+        settings.extraProviders.lines().mapNotNull { line ->
+            val p = line.split(",").map { it.trim() }
+            if (p.size < 4 || p[1].isEmpty() || p[3].isEmpty()) null else GroqProvider(p[3], p[2], p[0], p[1])
+        }
 
     /**
      * A plain torch or call command is run on the phone at once, without asking a model: that is the

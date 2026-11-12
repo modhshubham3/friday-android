@@ -34,6 +34,11 @@ class Settings(context: Context) {
         get() = prefs.getString("groq_key", "").orEmpty()
         set(v) = prefs.edit().putString("groq_key", v.trim()).apply()
 
+    /** Extra OpenAI-style providers, one per line: name, chat-completions URL, model, key (comma separated). */
+    var extraProviders: String
+        get() = prefs.getString("extra_providers", "").orEmpty()
+        set(v) = prefs.edit().putString("extra_providers", v.trim()).apply()
+
     var groqModel: String
         get() = prefs.getString("groq_model", null) ?: "llama-3.3-70b-versatile"
         set(v) = prefs.edit().putString("groq_model", v.trim()).apply()
