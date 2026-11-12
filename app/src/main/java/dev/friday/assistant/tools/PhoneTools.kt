@@ -13,6 +13,10 @@ import android.provider.AlarmClock
 import android.provider.ContactsContract
 import android.telecom.TelecomManager
 import dev.friday.assistant.SavedContact
+import dev.friday.assistant.inbox.DriveMode
+import dev.friday.assistant.inbox.Inbox
+import dev.friday.assistant.inbox.InboxDb
+import dev.friday.assistant.inbox.Rule
 import dev.friday.assistant.Settings
 import dev.friday.assistant.llm.ToolCall
 import dev.friday.assistant.llm.ToolOutput
@@ -100,6 +104,52 @@ class PhoneTools(
             ),
         ),
         ToolSpec(
+            "read_messages",
+            "Read out the user's new WhatsApp messages and mail that matter, or the latest from one person. " +
+                "Use for 'kya aaya', 'what did I miss', 'read my messages', 'Gauri ka message padho'.",
+            schema(required = emptyList(), "from" to prop("string", "A sender's name; leave out for everything new")),
+        ),
+        ToolSpec(
+            "reply_message",
+            "Reply to a WhatsApp message. Pass only the exact words to send. The app reads them back and asks the user " +
+                "to confirm, so never ask for confirmation yourself.",
+            schema(
+                required = listOf("text"),
+                "text" to prop("string", "The exact words to send"),
+                "to" to prop("string", "Who to reply to; leave out for the message that was just read out"),
+            ),
+        ),
+        ToolSpec(
+            "digest",
+            "The summary of today's WhatsApp messages and mail: who needs an answer, mail worth reading, what was skipped.",
+            JSONObject().put("type", "object").put("properties", JSONObject()),
+        ),
+        ToolSpec(
+            "teach",
+            "Record that the message just read out did or did not matter, or that a sender should always or never be read out.",
+            schema(
+                required = listOf("important"),
+                "important" to prop("boolean", "true if it mattered, false if it did not"),
+                "sender_rule" to prop("string", "always, never, or normal: how to treat this sender from now on"),
+                "sender" to prop("string", "Whose rule it is; leave out for the sender of the message just read out"),
+            ),
+        ),
+        ToolSpec(
+            "drive_mode",
+            "Turn drive mode on or off. While on, important messages are read out as they arrive.",
+            schema(required = listOf("on"), "on" to prop("boolean", "true to turn on, false to turn off")),
+        ),
+        ToolSpec(
+            "remember",
+            "Remember a fact the user tells you about themselves, such as who someone is or a preference.",
+            schema(required = listOf("fact"), "fact" to prop("string", "The fact, as a short sentence")),
+        ),
+        ToolSpec(
+            "forget",
+            "Forget remembered facts that mention these words.",
+            schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
+        ),
+        ToolSpec(
             "flashlight",
             "Turn the phone's flashlight (torch) on or off.",
             schema(
@@ -117,6 +167,13 @@ class PhoneTools(
                 "cancel_alarm" -> cancelAlarm(call.args)
                 "make_call" -> makeCall(call.args.optString("name_or_number"))
                 "flashlight" -> flashlight(call.args.optBoolean("on", true))
+                "read_messages" -> Inbox.readNew(context, call.args.optString("from").takeIf { it.isNotBlank() }, english)
+                "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
+                "digest" -> Inbox.digest(context, english)
+                "teach" -> teach(call.args)
+                "drive_mode" -> driveMode(call.args.optBoolean("on", true))
+                "remember" -> remember(call.args.optString("fact"))
+                "forget" -> forget(call.args.optString("fact"))
                 else -> "Error: '${call.name}' naam ka koi tool nahi hai"
             }
         } catch (e: CancellationException) {
@@ -406,6 +463,56 @@ class PhoneTools(
             prev = cur
         }
         return prev[b.length]
+    }
+
+    // ---- Inbox ------------------------------------------------------------
+
+    private suspend fun replyMessage(to: String, text: String): String {
+        if (text.isBlank()) return "Error: reply mein kya likhna hai? Exact words chahiye"
+        val event = Inbox.replyTarget(context, to.takeIf { it.isNotBlank() })
+            ?: return say("Reply dene layak koi message nahi mila", "I couldn't find a message I can reply to.")
+        return Inbox.confirmAndSend(context, event, text.trim(), prompts, english)
+    }
+
+    private fun teach(args: JSONObject): String {
+        val db = InboxDb.get(context)
+        val last = db.event(Inbox.lastEventId)
+        val rule = args.optString("sender_rule").lowercase()
+        if (rule == "always" || rule == "never" || rule == "normal") {
+            val named = args.optString("sender").takeIf { it.isNotBlank() }
+            val target = named?.let { db.fromSender(it, 1).firstOrNull() } ?: last
+                ?: return say("Kiska rule? Pehle kuch padh ke sunao ya naam batao", "Whose rule? Read something out first, or tell me the name.")
+            val value = when (rule) { "always" -> Rule.ALWAYS; "never" -> Rule.NEVER; else -> Rule.NONE }
+            Inbox.setSenderRule(context, target.senderKey, target.sender, value)
+            return when (rule) {
+                "always" -> say("${target.sender} ko hamesha padhungi.", "I will always read ${target.sender} out.")
+                "never" -> say("${target.sender} ko ab nahi padhungi.", "I will not read ${target.sender} out any more.")
+                else -> say("${target.sender} ke liye rule hata diya.", "${target.sender} is back to normal.")
+            }
+        }
+        if (last == null) return say("Pehle kuch padh ke sunaya hi nahi, kis par feedback du?", "I haven't read anything out yet, so there is nothing to mark.")
+        val mattered = args.optBoolean("important", true)
+        Inbox.feedback(context, last.id, mattered)
+        return if (mattered) say("Samajh gayi, aisa message zaroori maanungi.", "Noted. I will treat messages like that as important.")
+        else say("Samajh gayi, aise kam padhungi.", "Noted. I will read fewer like that.")
+    }
+
+    private fun driveMode(on: Boolean): String {
+        DriveMode.set(context, on, "voice")
+        return if (on) say("Drive mode on. Zaroori messages padh ke sunaungi.", "Drive mode on. I will read important messages out.")
+        else say("Drive mode off.", "Drive mode off.")
+    }
+
+    private fun remember(fact: String): String {
+        if (fact.isBlank()) return "Error: kya yaad rakhna hai?"
+        InboxDb.get(context).putFact(fact.trim())
+        return say("Yaad rakh liya.", "I'll remember that.")
+    }
+
+    private fun forget(words: String): String {
+        val removed = InboxDb.get(context).forgetFacts(words)
+        return if (removed == 0) say("Aisa kuch yaad nahi tha.", "I didn't have anything like that.")
+        else say("Bhool gayi.", "Forgotten.")
     }
 
     // ---- Flashlight -------------------------------------------------------

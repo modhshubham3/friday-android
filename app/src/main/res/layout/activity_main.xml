@@ -62,27 +62,35 @@
                 </LinearLayout>
 
                 <ImageView
+                    android:id="@+id/inboxButton"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:contentDescription="Inbox"
+                    android:padding="11dp"
+                    android:src="@drawable/ic_inbox" />
+
+                <ImageView
                     android:id="@+id/chatsButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
                     android:contentDescription="@string/chats"
-                    android:padding="12dp"
+                    android:padding="11dp"
                     android:src="@drawable/ic_history" />
 
                 <ImageView
                     android:id="@+id/newChatButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
                     android:contentDescription="@string/new_chat"
-                    android:padding="12dp"
+                    android:padding="11dp"
                     android:src="@drawable/ic_add" />
 
                 <ImageView
                     android:id="@+id/settingsButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
                     android:contentDescription="@string/settings"
-                    android:padding="12dp"
+                    android:padding="11dp"
                     android:src="@drawable/ic_settings" />
             </LinearLayout>
 

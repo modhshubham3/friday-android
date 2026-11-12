@@ -24,6 +24,9 @@ import dev.friday.assistant.Assistant
 import dev.friday.assistant.MainActivity
 import dev.friday.assistant.R
 import dev.friday.assistant.Settings
+import dev.friday.assistant.inbox.Inbox
+import dev.friday.assistant.inbox.InboxVoice
+import dev.friday.assistant.inbox.Privacy
 import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.tools.PhoneTools
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +57,7 @@ class FridayService : Service() {
 
     private var busy = false   // a conversation is in progress
     private var paused = false // the app's own mic button or voice is using the microphone
+    private var announceRequested = false // an important message arrived while Friday was busy
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,6 +82,15 @@ class FridayService : Service() {
                 settings.voiceWanted = false // the user asked for it to stop, so do not bring it back by itself
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_ANNOUNCE -> {
+                if (!running) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                announceRequested = true
+                main.post { drainAnnouncements() }
+                return START_STICKY
             }
             ACTION_PAUSE, ACTION_RESUME -> {
                 if (!running) { // nothing to pause: this call only just started the service
@@ -161,7 +174,27 @@ class FridayService : Service() {
 
     private fun onWake() {
         if (busy || paused) return
+        session { converse() }
+    }
+
+    /** Reads out what is waiting, if anything, once Friday is free. */
+    private fun drainAnnouncements() {
+        if (busy || paused) return
+        if (!announceRequested && !settings.driveMode) return
+        if (Inbox.nextToAnnounce(this) == null) {
+            announceRequested = false
+            return
+        }
+        session { announceLoop() }
+    }
+
+    /**
+     * One stretch of Friday using the microphone and speaker: the wake word listener lets go of the microphone,
+     * music steps aside, [block] runs, and everything goes back. Only one session runs at a time.
+     */
+    private fun session(block: suspend () -> Unit) {
         busy = true
+        talking = true
         scope.launch {
             val audio = getSystemService(AudioManager::class.java)
             val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
@@ -172,7 +205,7 @@ class FridayService : Service() {
             try {
                 wake.pause()
                 audio.requestAudioFocus(focus) // pauses music so it does not drown out the user
-                converse()
+                block()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -180,11 +213,35 @@ class FridayService : Service() {
             } finally {
                 audio.abandonAudioFocusRequest(focus)
                 busy = false
+                talking = false
                 VoiceState.mode.value = Mode.IDLE
                 VoiceState.level.value = 0f
                 if (!paused) wake.resume()
                 update("Bolo")
+                drainAnnouncements() // anything important that arrived meanwhile
             }
+        }
+    }
+
+    /** Reads each waiting message out, then listens a few seconds for what the user wants done with it. */
+    private suspend fun announceLoop() {
+        val prompts = VoicePrompts(this, listener, speaker, english = true)
+        while (settings.driveMode || announceRequested) {
+            announceRequested = false
+            val event = Inbox.nextToAnnounce(this) ?: break
+            Inbox.markAnnounced(this, event.id)
+            Inbox.lastEventId = event.id
+            VoiceLog.add(this, "Padh rahi hu: ${event.app} ${event.sender}")
+            update("Bol rahi hu...")
+            VoiceState.mode.value = Mode.SPEAKING
+            speaker.speak(Inbox.line(event, Privacy.mayReadContent(this)))
+            update("Sun rahi hu...")
+            VoiceState.mode.value = Mode.LISTENING
+            delay(150)
+            val said = withTimeoutOrNull(6_000) { listener.listen() }
+            VoiceState.mode.value = Mode.THINKING
+            VoiceLog.add(this, "Jawab: ${said ?: "-"}")
+            if (!InboxVoice.respond(this, event, said, speaker, listener, prompts)) break
         }
     }
 
@@ -224,7 +281,7 @@ class FridayService : Service() {
             VoiceState.mode.value = Mode.THINKING
             val thoughtAt = SystemClock.elapsedRealtime()
             val reply = Assistant.fastReply(heard, tools) ?: Assistant.router(settings).ask(
-                Assistant.systemPrompt(spoken = true, english = english), history.takeLast(MAX_HISTORY), tools.specs,
+                Assistant.systemPrompt(spoken = true, english = english, facts = Inbox.facts(this)), history.takeLast(MAX_HISTORY), tools.specs,
             ) { call ->
                 tools.run(call).also { VoiceLog.add(this, "Tool ${call.name}: ${it.text}") }
             }
@@ -284,11 +341,22 @@ class FridayService : Service() {
         private const val ACTION_STOP = "dev.friday.assistant.STOP"
         private const val ACTION_PAUSE = "dev.friday.assistant.PAUSE"
         private const val ACTION_RESUME = "dev.friday.assistant.RESUME"
+        private const val ACTION_ANNOUNCE = "dev.friday.assistant.ANNOUNCE"
 
         /** Longest wait for the user to start speaking after the beep. */
         private const val LISTEN_MS = 12_000L
         private const val MAX_TURNS = 4
         private const val MAX_HISTORY = 10
+
+        /** True while Friday is in the middle of a spoken exchange. */
+        @Volatile
+        var talking = false
+            private set
+
+        /** An important message arrived; read it out as soon as Friday is free. */
+        fun announce(context: Context) {
+            if (running) context.startService(Intent(context, FridayService::class.java).setAction(ACTION_ANNOUNCE))
+        }
 
         /** True while the service is up. Only the main thread reads or writes it. */
         @Volatile

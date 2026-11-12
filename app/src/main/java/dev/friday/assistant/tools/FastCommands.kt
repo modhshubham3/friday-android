@@ -42,12 +42,40 @@ object FastCommands {
         "why", "how", "what", "when", "missed", "block",
     )
 
+    private val MESSAGE_WORDS = setOf("message", "messages", "msg", "mail", "mails", "email", "emails", "whatsapp", "gmail", "notifications")
+    private val ASK_WORDS = setOf("read", "padho", "padh", "sunao", "batao", "bolo", "kya", "new", "naya", "nayi", "aaya", "aayi", "check", "any", "tell", "missed")
+    private val NOT_A_READ = setOf("send", "bhejo", "reply", "likho", "write", "jawab", "forward", "delete", "mark", "from", "ka", "ki")
+
     fun match(text: String): ToolCall? {
         // \p{M} keeps the vowel signs that Hindi and Gujarati words are built from; without it they split in pieces.
         val words = text.lowercase().split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.isNotEmpty() }
             .map { HEARD_AS[it] ?: it }
         if (words.isEmpty() || words.size > 6) return null
-        return torch(words) ?: call(words)
+        return torch(words) ?: call(words) ?: inbox(words) ?: digest(words) ?: drive(words)
+    }
+
+    /** "Kya aaya?", "messages padho", "any new mail": read out what is new and matters. */
+    private fun inbox(words: List<String>): ToolCall? {
+        val asksWhatCame = words.size <= 5 && words.any { it in setOf("aaya", "aayi", "miss", "missed") } &&
+            words.any { it in setOf("kya", "what", "koi") }
+        val readsMessages = words.any { it in MESSAGE_WORDS } && words.any { it in ASK_WORDS } && words.none { it in NOT_A_READ }
+        if (!(asksWhatCame || readsMessages) || words.size > 7) return null
+        return ToolCall("fast-inbox", "read_messages", JSONObject())
+    }
+
+    private fun digest(words: List<String>): ToolCall? =
+        if ("digest" in words || ("summary" in words && words.any { it in setOf("aaj", "today", "din") })) {
+            ToolCall("fast-digest", "digest", JSONObject())
+        } else {
+            null
+        }
+
+    private fun drive(words: List<String>): ToolCall? {
+        if ("drive" !in words || "mode" !in words) return null
+        val on = words.any { it in ON }
+        val off = words.any { it in OFF }
+        if (on == off) return null
+        return ToolCall("fast-drive", "drive_mode", JSONObject().put("on", on))
     }
 
     private fun torch(words: List<String>): ToolCall? {

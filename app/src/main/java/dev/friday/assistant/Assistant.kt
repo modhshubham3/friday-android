@@ -34,7 +34,7 @@ object Assistant {
      * Rebuilt for every question, because "7 baje" or "20 minute mein" only means something next to the current time.
      * [spoken] answers will be read aloud; [english] picks the English voice's language instead of Hinglish.
      */
-    fun systemPrompt(spoken: Boolean = false, english: Boolean = false): String {
+    fun systemPrompt(spoken: Boolean = false, english: Boolean = false, facts: List<String> = emptyList()): String {
         val now = SimpleDateFormat("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH).format(Date())
         val language = when {
             spoken && english ->
@@ -47,7 +47,8 @@ object Assistant {
             else ->
                 "Reply in Hinglish (Hindi written in Roman script mixed with English) unless the user writes pure English. "
         }
-        return "$BASE_PROMPT$language$TOOL_RULES Current local time: $now (${TimeZone.getDefault().id})."
+        val known = if (facts.isEmpty()) "" else " Things the user has told you about themselves (use them naturally, never recite them): ${facts.joinToString("; ")}."
+        return "$BASE_PROMPT$language$TOOL_RULES$known Current local time: $now (${TimeZone.getDefault().id})."
     }
 
     private const val BASE_PROMPT =
@@ -67,6 +68,10 @@ object Assistant {
             "user does not give it, use get_next_alarm and ask whether that is the one. Say a task is done " +
             "only if the tool result says it was confirmed, and never without calling the tool in this very " +
             "reply, even if an earlier answer looked similar; if the result says it could not confirm, say " +
-            "exactly that and tell the user to check. For an alarm like 'in 20 minutes', work out the exact " +
+            "exactly that and tell the user to check. You can also read out the user's new WhatsApp messages and mail " +
+            "with read_messages, reply to one with reply_message (pass only the words to send; the app asks the user " +
+            "to confirm before anything is sent), sum up the day with digest, record with teach whether the last message " +
+            "mattered or whether a sender should always or never be read out, switch drive_mode, and keep facts the user " +
+            "tells you with remember. For an alarm like 'in 20 minutes', work out the exact " +
             "time from the current time below."
 }

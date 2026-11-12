@@ -63,6 +63,9 @@ import dev.friday.assistant.voice.Listener
 import dev.friday.assistant.voice.ModelStore
 import dev.friday.assistant.voice.WakeTest
 import dev.friday.assistant.voice.Speaker
+import dev.friday.assistant.inbox.DigestScheduler
+import dev.friday.assistant.inbox.Inbox
+import dev.friday.assistant.inbox.InboxActivity
 import dev.friday.assistant.ui.AuroraView
 import dev.friday.assistant.ui.OrbView
 import dev.friday.assistant.voice.Mode
@@ -101,6 +104,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var talkButton: ImageView
     private lateinit var sendButton: ImageView
     private lateinit var chatsButton: ImageView
+    private lateinit var inboxButton: ImageView
     private lateinit var newChatButton: ImageView
     private lateinit var settingsButton: ImageView
 
@@ -203,6 +207,7 @@ class MainActivity : ComponentActivity() {
         talkButton = findViewById(R.id.talkButton)
         sendButton = findViewById(R.id.sendButton)
         chatsButton = findViewById(R.id.chatsButton)
+        inboxButton = findViewById(R.id.inboxButton)
         newChatButton = findViewById(R.id.newChatButton)
         settingsButton = findViewById(R.id.settingsButton)
         aurora = findViewById(R.id.aurora)
@@ -211,7 +216,9 @@ class MainActivity : ComponentActivity() {
         emptyState = findViewById(R.id.emptyState)
         greeting = findViewById(R.id.greeting)
         chips = findViewById(R.id.chips)
-        pressable(chatsButton, newChatButton, settingsButton, sendButton, orbHeader, orbMain)
+        inboxButton.setOnClickListener { startActivity(Intent(this, InboxActivity::class.java)) }
+        pressable(inboxButton, chatsButton, newChatButton, settingsButton, sendButton, orbHeader, orbMain)
+        DigestScheduler.schedule(this) // makes sure tonight's summary is armed
         // The orbs are a button too: tap Friday to talk to Friday.
         orbHeader.setOnClickListener { talkButton.performClick() }
         orbMain.setOnClickListener { talkButton.performClick() }
@@ -375,7 +382,7 @@ class MainActivity : ComponentActivity() {
             val english = settings.speakEnglish
             val tools = if (speak) spokenTools else phoneTools
             val reply = Assistant.fastReply(text, tools) ?: Assistant.router(settings).ask(
-                Assistant.systemPrompt(spoken = speak, english = english), historyForModel(), tools.specs,
+                Assistant.systemPrompt(spoken = speak, english = english, facts = Inbox.facts(this@MainActivity)), historyForModel(), tools.specs,
             ) { call ->
                 val output = tools.run(call)
                 // A plain result is shown as the reply itself; only ones the model must explain appear here.
@@ -523,7 +530,7 @@ class MainActivity : ComponentActivity() {
         title.setTextColor(s.ink); title.sp(20f)
         title.typeface = if (s.lightFont) bodyFont() else Typeface.DEFAULT_BOLD
         status.setTextColor(s.mute); status.sp(12f)
-        for (icon in listOf(chatsButton, newChatButton, settingsButton)) icon.setColorFilter(s.mute)
+        for (icon in listOf(inboxButton, chatsButton, newChatButton, settingsButton)) icon.setColorFilter(s.mute)
 
         input.background = rounded(s.surface, 24f, s.line)
         input.setTextColor(s.ink); input.setHintTextColor(s.mute); input.sp(16f)
@@ -637,7 +644,7 @@ class MainActivity : ComponentActivity() {
         greeting.sp(18f)
         greeting.typeface = bodyFont()
         chips.removeAllViews()
-        listOf("Torch on karo", "Agla alarm kab hai?", "Ek joke sunao").forEach { chips.addView(chip(it, s)) }
+        listOf("Kya aaya?", "Torch on karo", "Aaj ka summary").forEach { chips.addView(chip(it, s)) }
         shimmerTitle(s)
     }
 
@@ -937,6 +944,12 @@ class MainActivity : ComponentActivity() {
                     }
                 })
             }
+            addView(TextView(this@MainActivity).apply {
+                text = "Inbox, drive mode aur summary  ▸"
+                setTextColor(this@MainActivity.style.accent)
+                setPadding(0, dp(16f).toInt(), 0, dp(4f).toInt())
+                setOnClickListener { startActivity(Intent(this@MainActivity, InboxActivity::class.java)) }
+            })
             addView(TextView(this@MainActivity).apply {
                 text = "Awaaz chuno (Friday jaisi)  ▸"
                 setTextColor(this@MainActivity.style.accent)

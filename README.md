@@ -12,6 +12,7 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 - [x] Wake word service (on-device Vosk model, downloaded from Settings > Hey Friday setup)
 - [x] Hey Friday survives being closed only if the phone allows it: a Quick Settings tile and opening the app both turn it back on
 - [x] A living screen: an orb that shows listening / thinking / speaking, drifting light, a greeting with suggestions, text that writes itself
+- [x] Inbox for WhatsApp and Gmail: notifications kept (locked) on the phone, scored by a classifier that learns from thumbs up/down, read out in drive mode with spoken replies, evening summary
 - [x] Tool calling: set an alarm, call a contact (opens the dialer), flashlight
 - [ ] Week 2: tool calling (alarm, call, flashlight, music)
 - [ ] Week 3: "Friday" wake word + foreground service
@@ -32,6 +33,7 @@ Every push to `main` is built in GitHub Actions. A commit whose message contains
 - `Settings.kt` - API keys, model names, theme and text size saved on the phone
 - `Look.kt` - colour themes, looks and text sizes, combined into one Style
 - `llm/ModelHealth.kt` - remembers which models just failed so they are skipped for a while
+- `inbox/` - the inbox: `FridayNotificationService` -> `NotificationParser` -> `Classifier` + `Scorer` -> `InboxDb` (sealed by `Vault`), `Inbox`, `InboxVoice`, `DriveMode`, `Digest`, `InboxActivity`
 - `ui/` - `OrbView` (Friday's face) and `AuroraView` (drifting light), both drawn by hand
 - `voice/` - "Hey Friday": `FridayService` (foreground service), `WakeWord` (Vosk), `ModelStore`, `Listener`, `Speaker`, `VoicePrompts`, `VoiceLog`
 - `Assistant.kt` - which models to ask and the system prompt, shared by the screen and the voice service

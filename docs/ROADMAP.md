@@ -79,6 +79,12 @@ There is no model to fine-tune and none is needed. Three layers, cheapest first:
 - Free-tier Gemini may use what it receives to improve Google's models, so personal message text should not go there
   unless the user accepts that; the paid tier does not do this.
 
+## Built so far (WhatsApp and Gmail first)
+
+Phases 1 to 4 exist in a first version: the notification inbox, drive mode (read aloud, spoken replies, car Bluetooth),
+the day-end summary and the teach loop. Phase 5 (Gmail API, calendar, tasks) and 6 are not started. None of it has been
+tried on a phone yet; the first real messages will show what needs tuning.
+
 ## Not decided yet (defaults used until told otherwise)
 
 - Which apps count: default is all except a blocklist (banking, UPI, authenticators).

@@ -85,6 +85,36 @@ class Settings(context: Context) {
         get() = prefs.getString("listen_language", null) ?: "en-IN"
         set(v) = prefs.edit().putString("listen_language", v).apply()
 
+    // ---- Inbox, drive mode and the evening summary ----
+
+    /** While on, important messages are read out as they arrive. */
+    var driveMode: Boolean
+        get() = prefs.getBoolean("drive_mode", false)
+        set(v) = prefs.edit().putBoolean("drive_mode", v).apply()
+
+    /** When message words may be read aloud: "auto" (only to earbuds, headset or car), "always" or "never". */
+    var contentMode: String
+        get() = prefs.getString("content_mode", null) ?: "auto"
+        set(v) = prefs.edit().putString("content_mode", v).apply()
+
+    var digestHour: Int
+        get() = prefs.getInt("digest_hour", 21)
+        set(v) = prefs.edit().putInt("digest_hour", v).apply()
+
+    var digestMinute: Int
+        get() = prefs.getInt("digest_minute", 30)
+        set(v) = prefs.edit().putInt("digest_minute", v).apply()
+
+    /** Let a model write the evening summary from short snippets (one request a day), instead of the plain local one. */
+    var digestAi: Boolean
+        get() = prefs.getBoolean("digest_ai", true)
+        set(v) = prefs.edit().putBoolean("digest_ai", v).apply()
+
+    /** Bluetooth addresses of the devices that mean "I am driving". */
+    var carDevices: Set<String>
+        get() = prefs.getStringSet("car_devices", emptySet()) ?: emptySet()
+        set(v) = prefs.edit().putStringSet("car_devices", v).apply()
+
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()
