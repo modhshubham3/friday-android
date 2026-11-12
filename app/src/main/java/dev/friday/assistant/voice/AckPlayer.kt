@@ -80,11 +80,11 @@ class AckPlayer(private val context: Context, private val settings: Settings) {
         tts.shutdown()
     }
 
-    private fun phrases() = if (settings.speakEnglish) ENGLISH else HINGLISH
+    private fun phrases() = ENGLISH
 
     /** Named after the voice and the text, so choosing another voice records fresh files instead of reusing old ones. */
     private fun file(phrase: String): File {
-        val voice = if (settings.speakEnglish) settings.voiceName.orEmpty() else "hinglish"
+        val voice = settings.voiceName.orEmpty()
         val key = "$voice-${phrase.hashCode()}".replace(Regex("[^A-Za-z0-9_.-]"), "_")
         return File(context.cacheDir, "ack-$key.wav")
     }
@@ -104,6 +104,5 @@ class AckPlayer(private val context: Context, private val settings: Settings) {
     companion object {
         /** None of these may contain Friday's own name, or the wake word listener would hear it. */
         val ENGLISH = listOf("Yes, boss?", "Go ahead.", "I'm listening.")
-        val HINGLISH = listOf("Haan boss?", "Boliye.", "Ji, boliye.")
     }
 }

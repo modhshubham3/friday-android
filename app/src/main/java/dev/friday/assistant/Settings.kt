@@ -80,6 +80,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("speak_ack", true)
         set(v) = prefs.edit().putBoolean("speak_ack", v).apply()
 
+    /** What the speech engine listens for: "en-IN", "hi-IN", "gu-IN", or "auto" (tries all three, if the phone supports it). */
+    var listenLanguage: String
+        get() = prefs.getString("listen_language", null) ?: "en-IN"
+        set(v) = prefs.edit().putString("listen_language", v).apply()
+
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()

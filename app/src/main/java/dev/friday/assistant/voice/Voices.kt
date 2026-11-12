@@ -28,16 +28,44 @@ object Voices {
     fun label(v: Voice, number: Int) =
         "${v.locale.displayName} · ${if (v.isNetworkConnectionRequired) "online" else "offline"} · #$number"
 
-    /** Sets the saved voice, or the best one available, or plain Indian English when speaking Hinglish. */
-    fun apply(tts: TextToSpeech, settings: Settings) {
-        runCatching {
-            val chosen = if (settings.speakEnglish) {
-                val all = available(tts)
-                all.firstOrNull { it.name == settings.voiceName } ?: all.firstOrNull()
-            } else {
-                null
+    /** Which language a piece of text is written in, judged by its script. */
+    private fun languageOf(text: String): String {
+        var hindi = 0
+        var gujarati = 0
+        var latin = 0
+        for (c in text) {
+            when (c.code) {
+                in 0x0900..0x097F -> hindi++
+                in 0x0A80..0x0AFF -> gujarati++
+                in 0x41..0x7A -> latin++
             }
-            if (chosen != null) tts.voice = chosen else tts.language = Locale("en", "IN")
+        }
+        return when {
+            hindi > latin && hindi >= gujarati -> "hi"
+            gujarati > latin -> "gu"
+            else -> "en"
+        }
+    }
+
+    /**
+     * Sets the voice for [text]: the saved English voice for English, and the best installed Hindi or Gujarati
+     * voice when the text is in those scripts. Without a voice for that language the phone's default is used.
+     */
+    fun apply(tts: TextToSpeech, settings: Settings, text: String = "") {
+        runCatching {
+            when (val language = languageOf(text)) {
+                "en" -> {
+                    val all = available(tts)
+                    val chosen = all.firstOrNull { it.name == settings.voiceName } ?: all.firstOrNull()
+                    if (chosen != null) tts.voice = chosen else tts.language = Locale("en", "IN")
+                }
+                else -> {
+                    val installed = tts.voices.orEmpty()
+                        .filter { it.locale.language == language && "notInstalled" !in it.features }
+                        .maxByOrNull { it.quality }
+                    if (installed != null) tts.voice = installed else tts.language = Locale(language, "IN")
+                }
+            }
             tts.setSpeechRate(0.95f)
         }
     }

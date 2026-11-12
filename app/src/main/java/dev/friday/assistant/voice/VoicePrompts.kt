@@ -52,7 +52,7 @@ class VoicePrompts(
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    private fun words(text: String) = text.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+    private fun words(text: String) = text.lowercase().split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.isNotEmpty() }
 
     /** A spoken position ("doosra", "2") wins; otherwise the answer must name exactly one option. */
     private fun pick(heard: String, options: List<String>): Int? {
@@ -83,15 +83,21 @@ class VoicePrompts(
         val ORDINALS_EN = listOf("First", "Second", "Third", "Fourth", "Fifth", "Sixth")
 
         val POSITIONS: Map<String, Int> = buildMap {
-            listOf("pehla", "pehle", "pahla", "first", "ek", "one", "1").forEach { put(it, 0) }
-            listOf("doosra", "dusra", "doosre", "dusre", "second", "do", "two", "2").forEach { put(it, 1) }
-            listOf("teesra", "tisra", "third", "teen", "three", "3").forEach { put(it, 2) }
-            listOf("chautha", "chauthe", "fourth", "char", "four", "4").forEach { put(it, 3) }
-            listOf("paanchva", "panchva", "fifth", "paanch", "panch", "five", "5").forEach { put(it, 4) }
-            listOf("chhatha", "chhatwa", "sixth", "chhe", "six", "6").forEach { put(it, 5) }
+            listOf("pehla", "pehle", "pahla", "first", "ek", "one", "1", "पहला", "पहले", "एक", "પહેલો", "એક").forEach { put(it, 0) }
+            listOf("doosra", "dusra", "doosre", "dusre", "second", "do", "two", "2", "दूसरा", "दूसरे", "दो", "બીજો", "બે").forEach { put(it, 1) }
+            listOf("teesra", "tisra", "third", "teen", "three", "3", "तीसरा", "तीन", "ત્રીજો", "ત્રણ").forEach { put(it, 2) }
+            listOf("chautha", "chauthe", "fourth", "char", "four", "4", "चौथा", "चार", "ચોથો", "ચાર").forEach { put(it, 3) }
+            listOf("paanchva", "panchva", "fifth", "paanch", "panch", "five", "5", "पांचवा", "पाँचवा", "पांच", "પાંચમો", "પાંચ").forEach { put(it, 4) }
+            listOf("chhatha", "chhatwa", "sixth", "chhe", "six", "6", "छठा", "छह", "छः", "છઠ્ઠો", "છ").forEach { put(it, 5) }
         }
 
-        val YES = setOf("haan", "han", "ha", "haa", "yes", "yeah", "yep", "ok", "okay", "theek", "thik", "sahi", "kar", "karo", "hata")
-        val NO = setOf("nahi", "nahin", "nai", "no", "mat", "ruko", "cancel", "na", "nope", "stop")
+        val YES = setOf(
+            "haan", "han", "ha", "haa", "yes", "yeah", "yep", "ok", "okay", "theek", "thik", "sahi", "kar", "karo", "hata",
+            "हाँ", "हां", "जी", "ठीक", "सही", "करो", "हटाओ", "હા", "કરો", "ઠીક", "બરાબર",
+        )
+        val NO = setOf(
+            "nahi", "nahin", "nai", "no", "mat", "ruko", "cancel", "na", "nope", "stop",
+            "नहीं", "नही", "ना", "मत", "रुको", "ના", "નહીં", "નહિ",
+        )
     }
 }

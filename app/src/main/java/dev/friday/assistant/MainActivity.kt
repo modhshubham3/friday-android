@@ -50,6 +50,7 @@ import dev.friday.assistant.tools.PhoneTools
 import dev.friday.assistant.tools.UserPrompts
 import dev.friday.assistant.voice.FridayService
 import dev.friday.assistant.voice.FridayTileService
+import dev.friday.assistant.voice.Listener
 import dev.friday.assistant.voice.ModelStore
 import dev.friday.assistant.voice.WakeTest
 import dev.friday.assistant.voice.Speaker
@@ -313,14 +314,14 @@ class MainActivity : ComponentActivity() {
         addBubble(Bubble(Kind.USER, text))
         val userIndex = bubbles.lastIndex
         saveChat()
-        status.text = "Soch raha hu..."
+        status.text = "Soch rahi hu..."
         setBusy(true)
         showTyping()
         val startedAt = System.currentTimeMillis()
         lifecycleScope.launch {
             // A question that will be read out is answered in English when an English voice is chosen.
-            val english = speak && settings.speakEnglish
-            val tools = if (english) spokenTools else phoneTools
+            val english = settings.speakEnglish
+            val tools = if (speak) spokenTools else phoneTools
             val reply = Assistant.fastReply(text, tools) ?: Assistant.router(settings).ask(
                 Assistant.systemPrompt(spoken = speak, english = english), historyForModel(), tools.specs,
             ) { call ->
@@ -347,7 +348,7 @@ class MainActivity : ComponentActivity() {
             setBusy(false)
             if (speak && ttsReady) {
                 FridayService.pause(this@MainActivity)
-                tts?.let { Voices.apply(it, settings) }
+                tts?.let { Voices.apply(it, settings, reply.text) }
                 tts?.speak(Speaker.speakable(reply.text), TextToSpeech.QUEUE_FLUSH, null, "reply")
             }
         }
@@ -392,14 +393,11 @@ class MainActivity : ComponentActivity() {
             it.setRecognitionListener(listener)
             recognizer = it
         }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        val intent = Listener.request(this, settings)
         FridayService.pause(this)
         startMicPulse()
         setBusy(true)
-        status.text = "Sun raha hu..."
+        status.text = "Sun rahi hu..."
         // The wake word listener holds the microphone; give it a moment to let go before recognition starts.
         val wait = if (FridayService.running) 350L else 0L
         root.postDelayed({ sr.startListening(intent) }, wait)
@@ -435,7 +433,7 @@ class MainActivity : ComponentActivity() {
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() { status.text = "Samajh raha hu..." }
+        override fun onEndOfSpeech() { status.text = "Samajh rahi hu..." }
         override fun onPartialResults(partialResults: Bundle?) {}
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
@@ -888,8 +886,13 @@ class MainActivity : ComponentActivity() {
         val voices = if (ttsReady && speech != null) Voices.available(speech) else emptyList()
         var chosen = voices.indexOfFirst { it.name == settings.voiceName }.coerceAtLeast(0)
         val english = CheckBox(this).apply {
-            text = "Bolte waqt English use karo (Friday jaisi)"
+            text = "Hamesha English mein jawab do (band karo toh jis bhasha mein bolo, usi mein)"
             isChecked = settings.speakEnglish
+        }
+        val labels = listOf("English", "हिन्दी (Hindi)", "ગુજરાતી (Gujarati)", "Auto: teeno (experimental)")
+        val language = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, labels)
+            setSelection(Listener.LANGUAGES.indexOf(settings.listenLanguage).coerceAtLeast(0))
         }
         val ack = CheckBox(this).apply {
             text = "Wake word ke baad bolo ('Yes, boss?'), warna sirf beep"
@@ -916,6 +919,8 @@ class MainActivity : ComponentActivity() {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
+            addView(TextView(this@MainActivity).apply { text = "Main in bhasha mein sunti hu:" })
+            addView(language)
             addView(english)
             addView(ack)
             addView(
@@ -930,6 +935,7 @@ class MainActivity : ComponentActivity() {
             .setTitle("Awaaz chuno")
             .setView(ScrollView(this).apply { addView(form) })
             .setPositiveButton("Ye rakho") { _, _ ->
+                settings.listenLanguage = Listener.LANGUAGES[language.selectedItemPosition]
                 settings.speakEnglish = english.isChecked
                 settings.speakAck = ack.isChecked
                 settings.voiceName = voices.getOrNull(chosen)?.name

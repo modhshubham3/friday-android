@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentName
+import android.service.quicksettings.TileService
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -60,7 +62,7 @@ class FridayService : Service() {
         settings = Settings(this)
         wake = WakeWord(this)
         speaker = Speaker(this, settings)
-        listener = Listener(this)
+        listener = Listener(this, settings)
         acks = AckPlayer(this, settings)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Hey Friday", NotificationManager.IMPORTANCE_LOW).apply {
@@ -102,6 +104,7 @@ class FridayService : Service() {
         }
         if (!running) {
             running = true
+            refreshTile()
             // Without this the processor may sleep with the screen off and stop hearing the wake word.
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "friday:listening").apply { acquire() }
@@ -123,7 +126,7 @@ class FridayService : Service() {
             return START_NOT_STICKY
         }
         scope.launch { acks.prepare() } // record the spoken answers now, so they can play at once later
-        VoiceLog.add(this, "Sun raha hu ('Hey Friday' bolo)")
+        VoiceLog.add(this, "Sun rahi hu ('Hey Friday' bolo)")
         update("'Hey Friday' bolo")
         return START_STICKY
     }
@@ -135,8 +138,16 @@ class FridayService : Service() {
         super.onTaskRemoved(rootIntent)
     }
 
+    /** Asks the notification shade tile to redraw itself, so it shows whether listening is on. */
+    private fun refreshTile() {
+        runCatching {
+            TileService.requestListeningState(this, ComponentName(this, FridayTileService::class.java))
+        }
+    }
+
     override fun onDestroy() {
         running = false
+        refreshTile()
         scope.cancel()
         wake.release()
         speaker.shutdown()
@@ -177,7 +188,7 @@ class FridayService : Service() {
 
     private suspend fun converse() {
         VoiceLog.add(this, "Wake word suna")
-        val english = settings.speakEnglish
+        val english = settings.speakEnglish // whether answers stay English; plain tool results always are
         // Friday answers to its name out loud; the beep is only the fallback when it cannot speak.
         val ackAt = SystemClock.elapsedRealtime()
         if (settings.speakAck && (acks.play() || speaker.speak(acknowledgement(english)))) {
@@ -187,14 +198,14 @@ class FridayService : Service() {
             chime()
         }
         val tools = PhoneTools(
-            this, settings, VoicePrompts(this, listener, speaker, english),
-            fromBackground = true, english = english,
+            this, settings, VoicePrompts(this, listener, speaker, english = true),
+            fromBackground = true, english = true,
         )
         // Kept only while follow-ups last; the conversation ends as soon as Friday does not ask anything.
         val history = mutableListOf<ChatMessage>()
 
         repeat(MAX_TURNS) { turn ->
-            update("Sun raha hu...")
+            update("Sun rahi hu...")
             val listenedAt = SystemClock.elapsedRealtime()
             val heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }
             if (heard.isNullOrBlank()) {
@@ -205,7 +216,7 @@ class FridayService : Service() {
             VoiceLog.add(this, "Suna (${since(listenedAt)}): $heard")
             history += ChatMessage(fromUser = true, text = heard)
 
-            update("Soch raha hu...")
+            update("Soch rahi hu...")
             val thoughtAt = SystemClock.elapsedRealtime()
             val reply = Assistant.fastReply(heard, tools) ?: Assistant.router(settings).ask(
                 Assistant.systemPrompt(spoken = true, english = english), history.takeLast(MAX_HISTORY), tools.specs,
@@ -214,7 +225,7 @@ class FridayService : Service() {
             }
             reply.errors.forEach { VoiceLog.add(this, "Error: $it") }
             VoiceLog.add(this, "Friday (${since(thoughtAt)}, ${reply.provider ?: "koi nahi"}): ${reply.text}")
-            update("Bol raha hu...")
+            update("Bol rahi hu...")
             speaker.speak(reply.text)
 
             history += ChatMessage(fromUser = false, text = reply.text)
@@ -225,7 +236,7 @@ class FridayService : Service() {
 
     /** Used only when the recorded phrases are not ready, so it speaks one live. */
     private fun acknowledgement(english: Boolean) =
-        (if (english) AckPlayer.ENGLISH else AckPlayer.HINGLISH).random()
+        AckPlayer.ENGLISH.random()
 
     /** A short beep so it is clear Friday heard its name and is now listening. */
     private suspend fun chime() {

@@ -22,7 +22,7 @@ class Speaker(context: Context, private val settings: Settings) {
         if (!ready.await()) return false
         val clean = speakable(text)
         if (clean.isBlank()) return false
-        Voices.apply(tts, settings)
+        Voices.apply(tts, settings, clean)
         tts.setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -51,6 +51,6 @@ class Speaker(context: Context, private val settings: Settings) {
 
     companion object {
         /** Emoji and symbols are read out as words ("red heart"), so only letters, digits and plain punctuation stay. */
-        fun speakable(text: String) = text.replace(Regex("[^\\p{L}\\p{N}\\s.,?!'-]"), "").replace(Regex("\\s+"), " ").trim()
+        fun speakable(text: String) = text.replace(Regex("[^\\p{L}\\p{M}\\p{N}\\s.,?!'।-]"), "").replace(Regex("\\s+"), " ").trim()
     }
 }
