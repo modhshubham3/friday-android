@@ -766,11 +766,11 @@ class MainActivity : ComponentActivity() {
 
     private fun showVoiceSetup() {
         fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
-        val battery = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
-        val info = TextView(this).apply {
-            text = listOf(
+        fun describe(): String {
+            val battery = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+            return listOf(
                 "Service: ${if (FridayService.running) "chalu" else "band"}",
-                "Voice model: ${if (ModelStore.isReady(this@MainActivity)) "hai (${ModelStore.sizeMb(this@MainActivity)} MB)" else "download nahi hua"}",
+                "Voice model: ${if (ModelStore.isReady(this)) "hai (${ModelStore.sizeMb(this)} MB)" else "download nahi hua"}",
                 "Mic: ${if (granted(Manifest.permission.RECORD_AUDIO)) "ok" else "permission nahi"}",
                 "Contacts aur Call: ${
                     if (granted(Manifest.permission.READ_CONTACTS) && granted(Manifest.permission.CALL_PHONE)) "ok"
@@ -779,26 +779,31 @@ class MainActivity : ComponentActivity() {
                 "Battery: ${if (battery) "unrestricted" else "restricted (neeche button se hatao)"}",
             ).joinToString("\n")
         }
-        fun button(label: String, onClick: () -> Unit) = Button(this).apply {
+        val info = TextView(this).apply { text = describe() }
+        // Progress and errors are shown here, in the dialog itself: the status line is hidden behind it.
+        val note = TextView(this).apply { setPadding(0, dp(8f).toInt(), 0, 0) }
+        fun button(label: String) = Button(this).apply {
             text = label
             isAllCaps = false
-            setOnClickListener { onClick() }
         }
-        val pad = dp(20f).toInt()
-        val form = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
-            addView(info)
-            addView(button("Voice model download karo (~36 MB)") { downloadVoiceModel() })
-            addView(button("Battery restriction hatao") {
+        val download = button(if (ModelStore.isReady(this)) "Voice model hai ✓" else "Voice model download karo (~36 MB)")
+        download.setOnClickListener { downloadVoiceModel(download, note) { info.text = describe() } }
+        val battery = button("Battery restriction hatao").apply {
+            setOnClickListener {
                 startActivity(
                     Intent(
                         android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                         Uri.parse("package:$packageName"),
                     ),
                 )
-            })
-            addView(button("Voice log dekho") { showVoiceLog() })
+            }
+        }
+        val log = button("Voice log dekho").apply { setOnClickListener { showVoiceLog() } }
+        val pad = dp(20f).toInt()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            listOf(info, download, note, battery, log).forEach(::addView)
         }
         AlertDialog.Builder(this)
             .setTitle("Hey Friday setup")
@@ -812,16 +817,26 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    private fun downloadVoiceModel() {
+    private fun downloadVoiceModel(button: Button, note: TextView, onDone: () -> Unit) {
         if (ModelStore.isReady(this)) {
-            status.text = "Voice model pehle se hai"
+            note.text = "Voice model pehle se hai"
             return
         }
-        status.text = "Voice model download ho raha hai: 0%"
+        button.isEnabled = false
+        button.text = "Download ho raha hai: 0%"
+        note.text = ""
         lifecycleScope.launch {
-            ModelStore.download(this@MainActivity) { pct -> status.text = "Voice model download ho raha hai: $pct%" }
-                .onSuccess { status.text = "Voice model taiyaar. Ab Hey Friday setup mein 'Chalu karo' dabao" }
-                .onFailure { status.text = "Download fail: ${it.message}" }
+            ModelStore.download(this@MainActivity) { pct -> button.text = "Download ho raha hai: $pct%" }
+                .onSuccess {
+                    button.text = "Voice model hai ✓"
+                    note.text = "Taiyaar. Ab 'Chalu karo' dabao."
+                    onDone()
+                }
+                .onFailure {
+                    button.text = "Dobara try karo"
+                    button.isEnabled = true
+                    note.text = "Download fail: ${it.message ?: it.javaClass.simpleName}"
+                }
         }
     }
 
