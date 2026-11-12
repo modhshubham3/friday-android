@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.fridayvoice.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.7"
+        versionCode = 8
+        versionName = "0.8"
     }
 
     // A fixed debug keystore is committed on purpose: every CI build then carries

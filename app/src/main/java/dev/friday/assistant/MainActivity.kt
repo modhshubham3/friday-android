@@ -10,6 +10,7 @@ import android.text.InputType
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -33,6 +34,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var transcript: TextView
     private lateinit var talkButton: Button
+    private lateinit var input: EditText
+    private lateinit var sendButton: Button
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
@@ -67,6 +70,13 @@ class MainActivity : ComponentActivity() {
             if (ttsReady) tts?.language = Locale("en", "IN")
         }
 
+        input = findViewById(R.id.input)
+        sendButton = findViewById(R.id.sendButton)
+        sendButton.setOnClickListener { sendTyped() }
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) { sendTyped(); true } else false
+        }
+
         talkButton.setOnClickListener {
             val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
@@ -93,9 +103,18 @@ class MainActivity : ComponentActivity() {
         sr.startListening(intent)
     }
 
-    private fun onHeard(text: String) {
+    private fun sendTyped() {
+        val text = input.text.toString().trim()
+        if (text.isEmpty() || !sendButton.isEnabled) return
+        input.text.clear()
+        onHeard(text, speak = false) // typed questions get a silent, on-screen answer
+    }
+
+    private fun onHeard(text: String, speak: Boolean = true) {
         transcript.append("Tum: $text\n")
         status.text = "Soch raha hu..."
+        talkButton.isEnabled = false
+        sendButton.isEnabled = false
         lifecycleScope.launch {
             val reply = buildRouter().ask(SYSTEM_PROMPT, text)
             // No Android Studio means no logcat, so failures are printed on screen.
@@ -103,7 +122,8 @@ class MainActivity : ComponentActivity() {
             transcript.append("Friday: ${reply.text}\n\n")
             status.text = reply.provider?.let { "Jawab: $it" } ?: getString(R.string.idle)
             talkButton.isEnabled = true
-            if (ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
+            sendButton.isEnabled = true
+            if (speak && ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
         }
     }
 

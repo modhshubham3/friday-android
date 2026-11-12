@@ -4,7 +4,7 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 
 ## Status
 
-- [x] Week 1: push-to-talk -> speech-to-text -> LLM (Gemini, Groq fallback) -> text-to-speech
+- [x] Week 1: typed chat and push-to-talk -> speech-to-text -> LLM (Gemini, Groq fallback) -> text-to-speech
 - [ ] Week 2: tool calling (alarm, call, flashlight, music)
 - [ ] Week 3: "Friday" wake word + foreground service
 - [ ] Week 4: lock screen + battery-optimization handling
