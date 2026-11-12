@@ -8,13 +8,34 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import dev.friday.assistant.Settings
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /** Listens once and returns what was said, or null if nothing usable was heard. Main thread only. */
 class Listener(private val context: Context, private val settings: Settings) {
 
-    suspend fun listen(): String? = suspendCancellableCoroutine { cont ->
+    private var lastError = 0
+
+    /**
+     * Listens, and tries again (up to twice) when the speech service drops the connection right at the start.
+     * That happens when the recogniser is started while the earbuds are still switching to their microphone.
+     */
+    suspend fun listen(): String? {
+        repeat(3) { attempt ->
+            lastError = 0
+            val text = listenOnce()
+            if (text != null) return text
+            val transient = lastError == SpeechRecognizer.ERROR_SERVER_DISCONNECTED ||
+                lastError == SpeechRecognizer.ERROR_CLIENT || lastError == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+            if (!transient || attempt == 2) return null
+            VoiceLog.add(context, "Speech dobara try ($lastError)")
+            delay(400)
+        }
+        return null
+    }
+
+    private suspend fun listenOnce(): String? = suspendCancellableCoroutine { cont ->
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             VoiceLog.add(context, "Is phone pe speech recognition service nahi mili")
             cont.resume(null)
@@ -37,6 +58,7 @@ class Listener(private val context: Context, private val settings: Settings) {
             }
 
             override fun onError(error: Int) {
+                lastError = error
                 // 6 (no speech) and 7 (nothing recognised) are ordinary; anything else is worth a look.
                 if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT && error != SpeechRecognizer.ERROR_NO_MATCH) {
                     VoiceLog.add(context, "Speech error code $error")
