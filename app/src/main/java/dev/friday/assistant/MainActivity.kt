@@ -44,10 +44,12 @@ import dev.friday.assistant.tools.PhoneTools
 import dev.friday.assistant.tools.UserPrompts
 import dev.friday.assistant.voice.FridayService
 import dev.friday.assistant.voice.ModelStore
+import dev.friday.assistant.voice.WakeTest
 import dev.friday.assistant.voice.Speaker
 import dev.friday.assistant.voice.VoiceLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -788,6 +790,8 @@ class MainActivity : ComponentActivity() {
         }
         val download = button(if (ModelStore.isReady(this)) "Voice model hai ✓" else "Voice model download karo (~36 MB)")
         download.setOnClickListener { downloadVoiceModel(download, note) { info.text = describe() } }
+        val test = button("Mic aur wake word test (15 sec)")
+        test.setOnClickListener { runWakeTest(test, note) }
         val battery = button("Battery restriction hatao").apply {
             setOnClickListener {
                 startActivity(
@@ -803,7 +807,7 @@ class MainActivity : ComponentActivity() {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
-            listOf(info, download, note, battery, log).forEach(::addView)
+            listOf(info, download, test, note, battery, log).forEach(::addView)
         }
         AlertDialog.Builder(this)
             .setTitle("Hey Friday setup")
@@ -837,6 +841,40 @@ class MainActivity : ComponentActivity() {
                     button.isEnabled = true
                     note.text = "Download fail: ${it.message ?: it.javaClass.simpleName}"
                 }
+        }
+    }
+
+    /** Pins down a wake word failure: shows live what the microphone and the model hear. */
+    private fun runWakeTest(button: Button, note: TextView) {
+        if (!ModelStore.isReady(this)) {
+            note.text = "Pehle voice model download karo"
+            return
+        }
+        button.isEnabled = false
+        lifecycleScope.launch {
+            if (!ensurePermission(Manifest.permission.RECORD_AUDIO)) {
+                note.text = "Mic permission chahiye"
+                button.isEnabled = true
+                return@launch
+            }
+            FridayService.pause(this@MainActivity) // the microphone can only be used by one at a time
+            delay(600)
+            note.text = "Model load ho raha hai, phir bolo: Hey Friday"
+            val result = WakeTest.run(this@MainActivity, 15) { live ->
+                note.text = "Bolo: Hey Friday  (${live.secondsLeft} sec)\n" +
+                    "Mic level: ${live.level} (max ${live.peak})\n" +
+                    "Wake decoder: ${live.wake.ifEmpty { "-" }}\n" +
+                    "Free decoder: ${live.free.ifEmpty { "-" }}"
+            }
+            FridayService.resume(this@MainActivity)
+            button.isEnabled = true
+            note.text = when {
+                result.error != null -> "Test fail: ${result.error}"
+                result.matched -> "Wake word pehchana gaya ✓\nFree decoder ne suna: ${result.free.ifEmpty { "-" }}"
+                result.peak < 300 -> "Mic mein awaaz bahut kam aayi (max level ${result.peak}). Mic ya permission ka masla ho sakta hai."
+                else -> "Awaaz aayi (max level ${result.peak}) par 'Hey Friday' pehchana nahi gaya.\n" +
+                    "Wake decoder: ${result.wake.ifEmpty { "-" }}\nFree decoder: ${result.free.ifEmpty { "-" }}"
+            }
         }
     }
 

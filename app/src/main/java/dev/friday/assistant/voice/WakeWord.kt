@@ -9,6 +9,19 @@ import org.vosk.LibVosk
 import org.vosk.LogLevel
 import org.vosk.Model
 import org.vosk.Recognizer
+import kotlin.math.sqrt
+
+internal const val SAMPLE_RATE = 16_000
+
+/** The phrase, "friday" alone (people drop the "hey"), or "[unk]" for everything else, so ordinary talk is not forced into a match. */
+internal const val WAKE_GRAMMAR = "[\"hey friday\", \"friday\", \"[unk]\"]"
+
+/** Loudness of a stretch of audio, 0 to about 10000; silence is under 50 and speech is in the hundreds or more. */
+internal fun loudness(samples: ShortArray, count: Int): Int {
+    var sum = 0.0
+    for (i in 0 until count) sum += samples[i].toDouble() * samples[i]
+    return if (count == 0) 0 else sqrt(sum / count).toInt()
+}
 
 /**
  * The always-on listener. A small speech model (Vosk) runs on the phone and is told to expect only
@@ -24,6 +37,7 @@ class WakeWord(private val context: Context) {
     @Volatile private var stopRequested = false
     private var onWake: (() -> Unit)? = null
     private var onProblem: ((String) -> Unit)? = null
+    private var sessions = 0
 
     /**
      * Starts listening. Returns a plain-words reason right away if it cannot; a problem that only
@@ -58,7 +72,9 @@ class WakeWord(private val context: Context) {
 
     private fun begin() {
         stopRequested = false
-        thread = Thread({ listenLoop() }, "friday-wake").also { it.start() }
+        sessions++
+        val first = sessions == 1
+        thread = Thread({ listenLoop(first) }, "friday-wake").also { it.start() }
     }
 
     private fun halt() {
@@ -67,7 +83,7 @@ class WakeWord(private val context: Context) {
         thread = null
     }
 
-    private fun listenLoop() {
+    private fun listenLoop(logLevels: Boolean) {
         var recorder: AudioRecord? = null
         var recognizer: Recognizer? = null
         try {
@@ -75,7 +91,7 @@ class WakeWord(private val context: Context) {
                 LibVosk.setLogLevel(LogLevel.WARNINGS)
                 Model(ModelStore.dir(context).absolutePath).also { model = it }
             }
-            recognizer = Recognizer(loaded, SAMPLE_RATE.toFloat(), GRAMMAR)
+            recognizer = Recognizer(loaded, SAMPLE_RATE.toFloat(), WAKE_GRAMMAR)
 
             val chunk = ShortArray(SAMPLE_RATE / 10) // 100 ms
             val minBuffer = AudioRecord.getMinBufferSize(
@@ -91,6 +107,8 @@ class WakeWord(private val context: Context) {
                 return
             }
             recorder.startRecording()
+            var chunks = 0
+            var peak = 0
 
             while (!stopRequested) {
                 val n = recorder.read(chunk, 0, chunk.size)
@@ -99,6 +117,13 @@ class WakeWord(private val context: Context) {
                     return
                 }
                 if (n == 0) continue
+                // Proof in the log that the microphone is really delivering sound, and how loud.
+                peak = maxOf(peak, loudness(chunk, n))
+                chunks++
+                if (logLevels && (chunks == 50 || chunks == 300)) {
+                    VoiceLog.add(context, "Mic chal raha hai: ${chunks / 10} second mein sabse tez level $peak")
+                    peak = 0
+                }
                 val json = if (recognizer.acceptWaveForm(chunk, n)) recognizer.result else recognizer.partialResult
                 val heard = JSONObject(json).let { it.optString("text").ifEmpty { it.optString("partial") } }
                 if ("friday" in heard) {
@@ -115,12 +140,5 @@ class WakeWord(private val context: Context) {
             runCatching { recorder?.release() }
             runCatching { recognizer?.close() }
         }
-    }
-
-    private companion object {
-        const val SAMPLE_RATE = 16_000
-
-        /** Only this phrase, or "[unk]" for everything else, so ordinary talk is not forced into a match. */
-        const val GRAMMAR = "[\"hey friday\", \"[unk]\"]"
     }
 }
