@@ -46,10 +46,8 @@ class MainActivity : ComponentActivity() {
 
     /** Built per question so a key changed in Settings applies immediately. */
     private fun buildRouter() = LlmRouter(
-        listOf(
-            GeminiProvider(settings.geminiKey, settings.geminiModel),
+        settings.geminiModels.map { GeminiProvider(settings.geminiKey, it) } +
             GroqProvider(settings.groqKey, settings.groqModel),
-        ),
     )
 
     /** Set while we wait for the user to allow "install unknown apps". */
@@ -184,7 +182,7 @@ class MainActivity : ComponentActivity() {
             setText(value)
         }
         val geminiKey = field("Gemini API key", settings.geminiKey, secret = true)
-        val geminiModel = field("Gemini model", settings.geminiModel)
+        val geminiModel = field("Gemini models (comma se alag)", settings.geminiModel)
         val groqKey = field("Groq API key (optional)", settings.groqKey, secret = true)
         val groqModel = field("Groq model", settings.groqModel)
         val pad = (20 * resources.displayMetrics.density).toInt()

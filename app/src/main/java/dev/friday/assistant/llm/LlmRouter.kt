@@ -28,7 +28,7 @@ class LlmRouter(providers: List<LlmProvider>) {
 
     /**
      * A 5xx means the provider itself is overloaded or briefly down, which usually
-     * clears in seconds, so the same request is retried with a growing pause.
+     * clears in seconds, so the same request is retried once after a pause.
      * Other failures (bad key, unknown model, rate limit) will not fix themselves,
      * so they fall through to the next provider at once.
      */
@@ -44,6 +44,7 @@ class LlmRouter(providers: List<LlmProvider>) {
     }
 
     private companion object {
-        val RETRY_PAUSES_MS = listOf(1_000L, 3_000L)
+        // One short retry only: with several models in the chain, moving on is faster than waiting.
+        val RETRY_PAUSES_MS = listOf(1_000L)
     }
 }

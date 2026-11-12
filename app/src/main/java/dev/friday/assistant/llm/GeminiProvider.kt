@@ -7,7 +7,7 @@ class GeminiProvider(
     private val apiKey: String,
     private val model: String,
 ) : LlmProvider {
-    override val name = "Gemini"
+    override val name = "Gemini $model"
     override val isConfigured get() = apiKey.isNotBlank()
 
     override suspend fun chat(systemPrompt: String, userText: String): Result<String> {
