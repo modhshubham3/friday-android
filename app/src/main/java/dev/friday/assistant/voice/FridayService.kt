@@ -150,8 +150,8 @@ class FridayService : Service() {
             return START_NOT_STICKY
         }
         scope.launch { acks.prepare() } // record the spoken answers now, so they can play at once later
-        VoiceLog.add(this, "Sun rahi hu ('Hey Friday' bolo)")
-        update("'Hey Friday' bolo")
+        VoiceLog.add(this, if (settings.asleep) "So rahi hu ('Friday wake up' bolo)" else "Sun rahi hu ('Friday' bolo)")
+        update(if (settings.asleep) "So rahi hu: 'Friday wake up' bolo" else "'Friday' bolo")
         return START_STICKY
     }
 
@@ -185,6 +185,16 @@ class FridayService : Service() {
 
     private fun onWake() {
         if (busy || paused) return
+        if (settings.asleep) {
+            settings.asleep = false
+            update("'Friday' bolo")
+            session {
+                VoiceLog.add(this, "Jaag gayi (Friday wake up)")
+                VoiceState.mode.value = Mode.SPEAKING
+                speaker.speak("I'm awake, boss.")
+            }
+            return
+        }
         session { converse() }
     }
 
@@ -290,6 +300,15 @@ class FridayService : Service() {
                 return
             }
             VoiceLog.add(this, "Suna (${since(listenedAt)}): $heard")
+            val spoken = heard.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+            if (spoken.size <= 5 && ("sleep" in spoken || ("so" in spoken && ("jao" in spoken || "ja" in spoken)))) {
+                settings.asleep = true
+                update("So rahi hu: 'Friday wake up' bolo")
+                VoiceLog.add(this, "So gayi (Friday go to sleep)")
+                VoiceState.mode.value = Mode.SPEAKING
+                speaker.speak("Going to sleep. Say Friday wake up when you need me.")
+                return
+            }
             history += ChatMessage(fromUser = true, text = heard)
 
             update("Soch rahi hu...")

@@ -92,6 +92,11 @@ class Settings(context: Context) {
 
     // ---- Inbox, drive mode and the evening summary ----
 
+    /** Asleep, only "Friday wake up" is heard: a cough or a firecracker cannot wake her. Awake, "Friday" alone does. */
+    var asleep: Boolean
+        get() = prefs.getBoolean("asleep", false)
+        set(v) = prefs.edit().putBoolean("asleep", v).apply()
+
     /** While on, important messages are read out as they arrive. */
     var driveMode: Boolean
         get() = prefs.getBoolean("drive_mode", false)

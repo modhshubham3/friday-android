@@ -19,7 +19,8 @@ internal const val SAMPLE_RATE = 16_000
 internal const val HEADSET_MIN_LEVEL = 1200
 
 /** The phrase, "friday" alone (people drop the "hey"), or "[unk]" for everything else, so ordinary talk is not forced into a match. */
-internal const val WAKE_GRAMMAR = "[\"hey friday\", \"friday\", \"[unk]\"]"
+internal const val WAKE_GRAMMAR = "[\"friday\", \"[unk]\"]"
+internal const val SLEEP_GRAMMAR = "[\"friday wake up\", \"wake up friday\", \"friday wake\", \"[unk]\"]"
 
 /** Loudness of a stretch of audio, 0 to about 10000; silence is under 50 and speech is in the hundreds or more. */
 internal fun loudness(samples: ShortArray, count: Int): Int {
@@ -106,7 +107,8 @@ class WakeWord(private val context: Context) {
                 LibVosk.setLogLevel(LogLevel.WARNINGS)
                 Model(ModelStore.dir(context).absolutePath).also { model = it }
             }
-            recognizer = Recognizer(loaded, SAMPLE_RATE.toFloat(), WAKE_GRAMMAR)
+            val asleep = Settings(context).asleep
+            recognizer = Recognizer(loaded, SAMPLE_RATE.toFloat(), if (asleep) SLEEP_GRAMMAR else WAKE_GRAMMAR)
 
             val chunk = ShortArray(SAMPLE_RATE / 10) // 100 ms
             val minBuffer = AudioRecord.getMinBufferSize(
@@ -156,7 +158,7 @@ class WakeWord(private val context: Context) {
                 }
                 val json = if (recognizer.acceptWaveForm(chunk, n)) recognizer.result else recognizer.partialResult
                 val heard = JSONObject(json).let { it.optString("text").ifEmpty { it.optString("partial") } }
-                if ("friday" in heard) {
+                if ("friday" in heard && (!asleep || "wake" in heard)) {
                     val voice = recent.maxOrNull() ?: 0
                     // With an earphone mic at the mouth, a quiet "friday" is somebody else nearby: ignore it.
                     if (headset != null && voice < HEADSET_MIN_LEVEL) {
