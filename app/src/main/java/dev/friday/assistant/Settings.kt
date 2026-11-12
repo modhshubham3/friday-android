@@ -60,6 +60,11 @@ class Settings(context: Context) {
 
     fun clearSavedContacts() = prefs.edit().remove("contact_choices").apply()
 
+    /** True from "Chalu karo" until the user turns Hey Friday off, so opening the app can bring it back after the system stopped it. */
+    var voiceWanted: Boolean
+        get() = prefs.getBoolean("voice_wanted", false)
+        set(v) = prefs.edit().putBoolean("voice_wanted", v).apply()
+
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()

@@ -5,10 +5,13 @@ import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
 import android.app.AlertDialog
+import android.app.StatusBarManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -43,6 +46,7 @@ import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.tools.PhoneTools
 import dev.friday.assistant.tools.UserPrompts
 import dev.friday.assistant.voice.FridayService
+import dev.friday.assistant.voice.FridayTileService
 import dev.friday.assistant.voice.ModelStore
 import dev.friday.assistant.voice.WakeTest
 import dev.friday.assistant.voice.Speaker
@@ -213,6 +217,21 @@ class MainActivity : ComponentActivity() {
         val update = pendingUpdate
         if (update == null) checkForUpdate()
         else if (Updater.canInstall(this)) startUpdate(update)
+        resumeVoiceIfWanted()
+    }
+
+    /**
+     * Android will not start a microphone service in the background, but opening the app is allowed to.
+     * So if Hey Friday was on and has since stopped (phone restarted, app killed), opening Friday turns it back on.
+     */
+    private fun resumeVoiceIfWanted() {
+        if (!settings.voiceWanted || FridayService.running) return
+        val micOk = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (micOk && ModelStore.isReady(this)) {
+            FridayService.start(this)
+            status.text = "Hey Friday dobara chalu kiya"
+        }
     }
 
     override fun onDestroy() {
@@ -792,6 +811,7 @@ class MainActivity : ComponentActivity() {
         download.setOnClickListener { downloadVoiceModel(download, note) { info.text = describe() } }
         val test = button("Mic aur wake word test (15 sec)")
         test.setOnClickListener { runWakeTest(test, note) }
+        val tile = button("Quick Settings tile jodo").apply { setOnClickListener { addQuickTile(note) } }
         val battery = button("Battery restriction hatao").apply {
             setOnClickListener {
                 startActivity(
@@ -807,7 +827,7 @@ class MainActivity : ComponentActivity() {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
-            listOf(info, download, test, note, battery, log).forEach(::addView)
+            listOf(info, download, test, note, tile, battery, log).forEach(::addView)
         }
         AlertDialog.Builder(this)
             .setTitle("Hey Friday setup")
@@ -841,6 +861,27 @@ class MainActivity : ComponentActivity() {
                     button.isEnabled = true
                     note.text = "Download fail: ${it.message ?: it.javaClass.simpleName}"
                 }
+        }
+    }
+
+    /** Puts an on/off switch for Hey Friday in the notification shade, which works even when the app is closed. */
+    private fun addQuickTile(note: TextView) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            getSystemService(StatusBarManager::class.java).requestAddTileService(
+                ComponentName(this, FridayTileService::class.java),
+                "Hey Friday",
+                Icon.createWithResource(this, R.drawable.ic_mic),
+                mainExecutor,
+            ) { result ->
+                note.text = when (result) {
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED,
+                    StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED ->
+                        "Tile jud gayi. Notification shade mein 'Hey Friday' se on/off karo."
+                    else -> "Tile nahi judi (code $result). Shade kholo, edit (pencil) dabao aur 'Hey Friday' ko kheench lo."
+                }
+            }
+        } else {
+            note.text = "Shade kholo, edit (pencil) dabao aur 'Hey Friday' tile ko kheench lo."
         }
     }
 
@@ -879,6 +920,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startVoice() {
+        settings.voiceWanted = true
         if (!ModelStore.isReady(this)) {
             status.text = "Pehle Voice model download karo"
             return

@@ -70,6 +70,7 @@ class FridayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                settings.voiceWanted = false // the user asked for it to stop, so do not bring it back by itself
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -84,6 +85,7 @@ class FridayService : Service() {
             }
         }
 
+        if (intent == null) VoiceLog.add(this, "System ne service dobara shuru ki (pehle band ho gayi thi)")
         try {
             ServiceCompat.startForeground(
                 this, NOTIFICATION_ID, notification("Shuru ho raha hai..."),
@@ -120,6 +122,13 @@ class FridayService : Service() {
         VoiceLog.add(this, "Sun raha hu ('Hey Friday' bolo)")
         update("'Hey Friday' bolo")
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Android keeps a foreground service alive when the app is swiped away, but some phones do not.
+        // If the log stops after this line, the phone killed it.
+        VoiceLog.add(this, "App recents se hata di gayi")
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

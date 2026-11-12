@@ -10,6 +10,7 @@ Personal voice assistant in Kotlin. Free-tier LLMs with automatic failover.
 - [x] Five looks (Standard, Animated, Minimal, iOS Dark, iOS Light), icon buttons with motion
 - [x] Chats saved on the phone, with a list of old chats
 - [x] Wake word service (on-device Vosk model, downloaded from Settings > Hey Friday setup)
+- [x] Hey Friday survives being closed only if the phone allows it: a Quick Settings tile and opening the app both turn it back on
 - [x] Tool calling: set an alarm, call a contact (opens the dialer), flashlight
 - [ ] Week 2: tool calling (alarm, call, flashlight, music)
 - [ ] Week 3: "Friday" wake word + foreground service
