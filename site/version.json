@@ -1,1 +1,1 @@
-{"code":140,"name":"0.140","sha256":"c2cbcc8998a21dc59f578f98e26bcdcc8da2ad5fb6bfefb381c97c0d6821d4e7","size":13153770,"notes":"Say plainly that new messages cannot be sent; never turn a message request into a call [publish]","time":"2026-11-12T16:48:44Z"}
+{"code":141,"name":"0.141","sha256":"245aff0b9e5db3f226d8309084d54326881daead21cbed33aa1698b078837870","size":13153777,"notes":"Sleep/wake mode: asleep hears only 'Friday wake up'; awake 'Friday'; no 'hey' [publish]","time":"2026-11-12T16:55:16Z"}
