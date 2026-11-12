@@ -1,1 +1,1 @@
-{"code":108,"name":"0.108","sha256":"da39206e39de9b594a49bd101bf2f9b0e205911d5bdf2ae382ba2553520771e9","size":2522318,"notes":"Allow the published APK in site/ past the apk ignore rule","time":"2026-11-12T07:40:05Z"}
+{"code":109,"name":"0.109","sha256":"101b47435537a1a273cb2c190441fff14820b2d4cc12b976436d748cfdefa727","size":2523670,"notes":"Retry a provider twice when it answers with a server error","time":"2026-11-12T07:43:14Z"}
