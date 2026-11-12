@@ -29,6 +29,9 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
+import android.widget.CheckBox
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -51,6 +54,7 @@ import dev.friday.assistant.voice.ModelStore
 import dev.friday.assistant.voice.WakeTest
 import dev.friday.assistant.voice.Speaker
 import dev.friday.assistant.voice.VoiceLog
+import dev.friday.assistant.voice.Voices
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
@@ -90,6 +94,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var settings: Settings
     private lateinit var chats: ChatStore
     private lateinit var phoneTools: PhoneTools
+    private lateinit var spokenTools: PhoneTools
     private var chatId = ""
     private lateinit var style: Style
 
@@ -163,6 +168,7 @@ class MainActivity : ComponentActivity() {
         settings = Settings(this)
         chats = ChatStore(this)
         phoneTools = PhoneTools(this, settings, prompts)
+        spokenTools = PhoneTools(this, settings, prompts, english = true)
 
         root = findViewById(R.id.root)
         title = findViewById(R.id.title)
@@ -182,7 +188,7 @@ class MainActivity : ComponentActivity() {
         tts = TextToSpeech(this) { result ->
             ttsReady = result == TextToSpeech.SUCCESS
             if (ttsReady) {
-                tts?.language = Locale("en", "IN")
+                tts?.let { Voices.apply(it, settings) }
                 // While Friday speaks, the wake word listener sits out, or it hears the name in Friday's own voice.
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
@@ -312,8 +318,13 @@ class MainActivity : ComponentActivity() {
         showTyping()
         val startedAt = System.currentTimeMillis()
         lifecycleScope.launch {
-            val reply = Assistant.router(settings).ask(Assistant.systemPrompt(), historyForModel(), phoneTools.specs) { call ->
-                val output = phoneTools.run(call)
+            // A question that will be read out is answered in English when an English voice is chosen.
+            val english = speak && settings.speakEnglish
+            val tools = if (english) spokenTools else phoneTools
+            val reply = Assistant.fastReply(text, tools) ?: Assistant.router(settings).ask(
+                Assistant.systemPrompt(spoken = speak, english = english), historyForModel(), tools.specs,
+            ) { call ->
+                val output = tools.run(call)
                 // A plain result is shown as the reply itself; only ones the model must explain appear here.
                 if (!output.final) addBubble(Bubble(Kind.TOOL, output.text, viaTool = true))
                 output
@@ -336,6 +347,7 @@ class MainActivity : ComponentActivity() {
             setBusy(false)
             if (speak && ttsReady) {
                 FridayService.pause(this@MainActivity)
+                tts?.let { Voices.apply(it, settings) }
                 tts?.speak(Speaker.speakable(reply.text), TextToSpeech.QUEUE_FLUSH, null, "reply")
             }
         }
@@ -751,6 +763,12 @@ class MainActivity : ComponentActivity() {
                 })
             }
             addView(TextView(this@MainActivity).apply {
+                text = "Awaaz chuno (Friday jaisi)  ▸"
+                setTextColor(this@MainActivity.style.accent)
+                setPadding(0, dp(16f).toInt(), 0, dp(4f).toInt())
+                setOnClickListener { showVoicePicker() }
+            })
+            addView(TextView(this@MainActivity).apply {
                 text = "Hey Friday (voice) setup  ▸"
                 setTextColor(this@MainActivity.style.accent)
                 setPadding(0, dp(16f).toInt(), 0, dp(4f).toInt())
@@ -862,6 +880,61 @@ class MainActivity : ComponentActivity() {
                     note.text = "Download fail: ${it.message ?: it.javaClass.simpleName}"
                 }
         }
+    }
+
+    /** Lets the user listen to each installed English voice and keep one. The Irish ones come first. */
+    private fun showVoicePicker() {
+        val speech = tts
+        val voices = if (ttsReady && speech != null) Voices.available(speech) else emptyList()
+        var chosen = voices.indexOfFirst { it.name == settings.voiceName }.coerceAtLeast(0)
+        val english = CheckBox(this).apply {
+            text = "Bolte waqt English use karo (Friday jaisi)"
+            isChecked = settings.speakEnglish
+        }
+        val group = RadioGroup(this)
+        voices.forEachIndexed { i, voice ->
+            group.addView(
+                RadioButton(this).apply {
+                    id = View.generateViewId()
+                    text = Voices.label(voice, i + 1)
+                    isChecked = i == chosen
+                    setOnClickListener {
+                        chosen = i
+                        // Friday's own name in the sample must not wake the listener.
+                        FridayService.pause(this@MainActivity)
+                        speech?.voice = voice
+                        speech?.speak("Hello, I'm Friday. How can I help?", TextToSpeech.QUEUE_FLUSH, null, "sample")
+                    }
+                },
+            )
+        }
+        val pad = dp(20f).toInt()
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(english)
+            addView(
+                if (voices.isEmpty()) {
+                    TextView(this@MainActivity).apply { text = "Koi English voice installed nahi mili. Neeche se download karo." }
+                } else {
+                    group
+                },
+            )
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Awaaz chuno")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setPositiveButton("Ye rakho") { _, _ ->
+                settings.speakEnglish = english.isChecked
+                settings.voiceName = voices.getOrNull(chosen)?.name
+                speech?.let { Voices.apply(it, settings) }
+            }
+            .setNeutralButton("Aur voices download karo") { _, _ ->
+                runCatching { startActivity(Intent("com.android.settings.TTS_SETTINGS")) }
+                    .onFailure { runCatching { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) } }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** Puts an on/off switch for Hey Friday in the notification shade, which works even when the app is closed. */

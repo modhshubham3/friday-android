@@ -43,8 +43,17 @@ class PhoneTools(
     private val prompts: UserPrompts,
     /** True when running from the voice service with no screen open, where some things work differently. */
     private val fromBackground: Boolean = false,
+    /** True when an English voice will read the answers out; plain results are then worded in English. */
+    private val english: Boolean = false,
 ) {
     data class ClockApp(val pkg: String, val label: String)
+
+    /** One sentence in two languages: Hinglish for the screen, English when it will be spoken by an English voice. */
+    private fun say(hi: String, en: String) = if (english) en else hi
+
+    /** "14:05" is read out as "2:05 PM". */
+    private fun clock12(hour: Int, minute: Int) =
+        "${if (hour % 12 == 0) 12 else hour % 12}:${"%02d".format(minute)} ${if (hour < 12) "AM" else "PM"}"
 
     /** Opens another app's screen. Outside an Activity Android requires a task of its own. */
     private fun launch(intent: Intent) {
@@ -141,7 +150,7 @@ class PhoneTools(
     private suspend fun pickClockApp(apps: List<ClockApp>): ClockApp? {
         if (apps.size == 1) return apps[0]
         settings.alarmPackage?.let { saved -> apps.firstOrNull { it.pkg == saved }?.let { return it } }
-        val index = prompts.choose("Alarm kaunsi Clock app mein lagaun?", apps.map { it.label }) ?: return null
+        val index = prompts.choose(say("Alarm kaunsi Clock app mein lagaun?", "Which clock app should I use?"), apps.map { it.label }) ?: return null
         settings.alarmPackage = apps[index].pkg
         return apps[index]
     }
@@ -182,7 +191,7 @@ class PhoneTools(
         val (hour, minute) = readTime(args) ?: return "Error: alarm ka sahi hour (0-23) aur minute (0-59) chahiye"
         val apps = clockApps()
         if (apps.isEmpty()) return "Error: is phone mein alarm ke liye koi Clock app nahi mili"
-        val app = pickClockApp(apps) ?: return "Theek hai, Clock app nahi chuni isliye alarm nahi lagaya"
+        val app = pickClockApp(apps) ?: return say("Theek hai, Clock app nahi chuni isliye alarm nahi lagaya", "Okay, I have not set the alarm because no clock app was chosen.")
 
         val intent = Intent(AlarmClock.ACTION_SET_ALARM)
             .setPackage(app.pkg)
@@ -197,7 +206,7 @@ class PhoneTools(
         }
         val expected = nextOccurrence(hour, minute)
         return if (waitFor { isAt(it, expected) }) {
-            "Alarm ${time(hour, minute)} ka ${app.label} mein set ho gaya (system ne confirm kiya)"
+            say("Alarm ${time(hour, minute)} ka ${app.label} mein set ho gaya (system ne confirm kiya)", "Alarm set for ${clock12(hour, minute)}.")
         } else {
             "Alarm ${time(hour, minute)} ke liye request ${app.label} ko bheji, par confirm nahi ho paya " +
                 "(ho sakta hai koi aur alarm pehle ho). User ko Clock app mein check karne ko bolo"
@@ -226,12 +235,12 @@ class PhoneTools(
         val label = time(hour, minute)
         // The question is asked by the app, not left to the model, so a destructive step
         // can never happen on a guess.
-        if (!prompts.confirm("$label ka alarm hata du?", "Haan, hata do")) {
-            return "Theek hai, alarm nahi hataya"
+        if (!prompts.confirm(say("$label ka alarm hata du?", "Should I remove the ${clock12(hour, minute)} alarm?"), say("Haan, hata do", "Yes, remove it"))) {
+            return say("Theek hai, alarm nahi hataya", "Okay, I have not removed the alarm.")
         }
         val apps = clockApps()
         if (apps.isEmpty()) return "Error: is phone mein koi Clock app nahi mili"
-        val app = pickClockApp(apps) ?: return "Theek hai, Clock app nahi chuni isliye kuch nahi hataya"
+        val app = pickClockApp(apps) ?: return say("Theek hai, Clock app nahi chuni isliye kuch nahi hataya", "Okay, nothing was removed because no clock app was chosen.")
 
         val expected = nextOccurrence(hour, minute)
         val wasNext = isAt(alarmManager().nextAlarmClock?.triggerTime, expected)
@@ -250,7 +259,7 @@ class PhoneTools(
                 "User ko Clock app mein check karne ko bolo"
         }
         return if (waitFor { !isAt(it, expected) }) {
-            "$label ka alarm hat gaya (system ne confirm kiya)"
+            say("$label ka alarm hat gaya (system ne confirm kiya)", "Removed the ${clock12(hour, minute)} alarm.")
         } else {
             "$label ka alarm abhi bhi agla alarm dikh raha hai, ${app.label} ne request nahi maani. " +
                 "User ko Clock app se haath se hatana hoga"
@@ -291,16 +300,16 @@ class PhoneTools(
         val sure = matches.singleOrNull()?.takeIf { it.score <= 1 }
         val contact = sure ?: run {
             userChose = true
-            val index = prompts.choose("Kisko call karun?", matches.map { it.name })
-                ?: return "Theek hai, call nahi kiya"
+            val index = prompts.choose(say("Kisko call karun?", "Who should I call?"), matches.map { it.name })
+                ?: return say("Theek hai, call nahi kiya", "Okay, I will not call.")
             matches[index]
         }
         val number = if (contact.numbers.size == 1) {
             contact.numbers[0]
         } else {
             userChose = true
-            val index = prompts.choose("${contact.name}: kaunsa number?", contact.numbers)
-                ?: return "Theek hai, call nahi kiya"
+            val index = prompts.choose(say("${contact.name}: kaunsa number?", "Which number for ${contact.name}?"), contact.numbers)
+                ?: return say("Theek hai, call nahi kiya", "Okay, I will not call.")
             contact.numbers[index]
         }
         if (userChose) settings.saveContact(key, SavedContact(contact.name, number))
@@ -318,7 +327,7 @@ class PhoneTools(
             } else {
                 launch(Intent(Intent.ACTION_CALL, uri))
             }
-            "$who ko call lagayi ja rahi hai (Android ko call shuru karne ki request di)"
+            say("$who ko call lagayi ja rahi hai (Android ko call shuru karne ki request di)", "Calling $who.")
         } else {
             launch(Intent(Intent.ACTION_DIAL, uri))
             "Call ki permission nahi mili, isliye dialer $who ke number ke saath khola; user ko call ka button dabana hai"
@@ -407,7 +416,7 @@ class PhoneTools(
             cameras.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return "Error: is phone mein flashlight nahi mili"
         cameras.setTorchMode(id, on)
-        return if (on) "Flashlight on kar di" else "Flashlight band kar di"
+        return if (on) say("Flashlight on kar di", "Flashlight on.") else say("Flashlight band kar di", "Flashlight off.")
     }
 
     private companion object {

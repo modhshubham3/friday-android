@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.ServiceCompat
 import dev.friday.assistant.Assistant
 import dev.friday.assistant.MainActivity
@@ -57,7 +58,7 @@ class FridayService : Service() {
         super.onCreate()
         settings = Settings(this)
         wake = WakeWord(this)
-        speaker = Speaker(this)
+        speaker = Speaker(this, settings)
         listener = Listener(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Hey Friday", NotificationManager.IMPORTANCE_LOW).apply {
@@ -173,29 +174,35 @@ class FridayService : Service() {
     private suspend fun converse() {
         VoiceLog.add(this, "Wake word suna")
         chime()
-        val tools = PhoneTools(this, settings, VoicePrompts(this, listener, speaker), fromBackground = true)
+        val english = settings.speakEnglish
+        val tools = PhoneTools(
+            this, settings, VoicePrompts(this, listener, speaker, english),
+            fromBackground = true, english = english,
+        )
         // Kept only while follow-ups last; the conversation ends as soon as Friday does not ask anything.
         val history = mutableListOf<ChatMessage>()
 
         repeat(MAX_TURNS) { turn ->
             update("Sun raha hu...")
+            val listenedAt = SystemClock.elapsedRealtime()
             val heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }
             if (heard.isNullOrBlank()) {
                 // Stay quiet: a false wake in a quiet room should not make Friday talk to itself.
                 VoiceLog.add(this, "Kuch suna nahi")
                 return
             }
-            VoiceLog.add(this, "Suna: $heard")
+            VoiceLog.add(this, "Suna (${since(listenedAt)}): $heard")
             history += ChatMessage(fromUser = true, text = heard)
 
             update("Soch raha hu...")
-            val reply = Assistant.router(settings).ask(
-                Assistant.systemPrompt(spoken = true), history.takeLast(MAX_HISTORY), tools.specs,
+            val thoughtAt = SystemClock.elapsedRealtime()
+            val reply = Assistant.fastReply(heard, tools) ?: Assistant.router(settings).ask(
+                Assistant.systemPrompt(spoken = true, english = english), history.takeLast(MAX_HISTORY), tools.specs,
             ) { call ->
                 tools.run(call).also { VoiceLog.add(this, "Tool ${call.name}: ${it.text}") }
             }
             reply.errors.forEach { VoiceLog.add(this, "Error: $it") }
-            VoiceLog.add(this, "Friday: ${reply.text}")
+            VoiceLog.add(this, "Friday (${since(thoughtAt)}, ${reply.provider ?: "koi nahi"}): ${reply.text}")
             update("Bol raha hu...")
             speaker.speak(reply.text)
 
@@ -208,10 +215,12 @@ class FridayService : Service() {
     /** A short beep so it is clear Friday heard its name and is now listening. */
     private suspend fun chime() {
         val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
-        tone.startTone(ToneGenerator.TONE_PROP_ACK, 150)
-        delay(350) // wait out the beep, or it is heard as speech
+        tone.startTone(ToneGenerator.TONE_PROP_ACK, 120)
+        delay(220) // wait out the beep, or it is heard as speech
         tone.release()
     }
+
+    private fun since(startedAt: Long) = "%.1fs".format((SystemClock.elapsedRealtime() - startedAt) / 1000.0)
 
     // ---- Notification -------------------------------------------------------
 

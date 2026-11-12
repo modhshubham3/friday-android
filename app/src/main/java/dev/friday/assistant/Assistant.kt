@@ -3,6 +3,8 @@ package dev.friday.assistant
 import dev.friday.assistant.llm.GeminiProvider
 import dev.friday.assistant.llm.GroqProvider
 import dev.friday.assistant.llm.LlmRouter
+import dev.friday.assistant.tools.FastCommands
+import dev.friday.assistant.tools.PhoneTools
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,23 +18,44 @@ object Assistant {
             GroqProvider(settings.groqKey, settings.groqModel),
     )
 
-    /** Rebuilt for every question, because "7 baje" or "20 minute mein" only means something next to the current time. */
-    fun systemPrompt(spoken: Boolean = false): String {
+    /**
+     * A plain torch or call command is run on the phone at once, without asking a model: that is the
+     * difference between half a second and several. Null when [text] is anything else, or when the
+     * tool has something to ask or explain, in which case the model takes over as usual.
+     */
+    suspend fun fastReply(text: String, tools: PhoneTools): LlmRouter.Reply? {
+        val call = FastCommands.match(text) ?: return null
+        val output = tools.run(call)
+        if (!output.final) return null
+        return LlmRouter.Reply(output.text, "Phone (turant)", emptyList(), usedTools = true, direct = true)
+    }
+
+    /**
+     * Rebuilt for every question, because "7 baje" or "20 minute mein" only means something next to the current time.
+     * [spoken] answers will be read aloud; [english] picks the English voice's language instead of Hinglish.
+     */
+    fun systemPrompt(spoken: Boolean = false, english: Boolean = false): String {
         val now = SimpleDateFormat("EEEE, d MMMM yyyy, HH:mm", Locale.ENGLISH).format(Date())
-        val voice = if (spoken) {
-            " This request was spoken and your answer will be read aloud: use one or two short sentences."
-        } else {
-            ""
+        val language = when {
+            spoken && english ->
+                "Your answer is read aloud by an English voice, so answer in clear, calm, natural English even " +
+                    "if the user spoke Hindi or Hinglish, in one or two short sentences. "
+            spoken ->
+                "Your answer is read aloud, so use one or two short sentences. Reply in Hinglish (Hindi written " +
+                    "in Roman script mixed with English) unless the user speaks pure English. "
+            else ->
+                "Reply in Hinglish (Hindi written in Roman script mixed with English) unless the user writes pure English. "
         }
-        return "$BASE_PROMPT$voice Current local time: $now (${TimeZone.getDefault().id})."
+        return "$BASE_PROMPT$language$TOOL_RULES Current local time: $now (${TimeZone.getDefault().id})."
     }
 
     private const val BASE_PROMPT =
         "You are Friday, a personal assistant on the user's Android phone. " +
             "Replies appear in a small chat bubble and are sometimes read aloud, so keep them " +
-            "short and conversational with no markdown, lists, or emojis. Reply in Hinglish (Hindi " +
-            "written in Roman script mixed with English) unless the user writes pure English. " +
-            "You can set and cancel alarms, start phone calls and switch the flashlight with your tools. " +
+            "short and conversational with no markdown, lists, or emojis. "
+
+    private const val TOOL_RULES =
+        "You can set and cancel alarms, start phone calls and switch the flashlight with your tools. " +
             "When a request is clear, act on it without asking for confirmation. Never guess a missing " +
             "detail: if the time (including AM or PM), the contact or the alarm is unclear, ask one short " +
             "question first and wait for the answer. To remove an alarm you need its exact time: if the " +

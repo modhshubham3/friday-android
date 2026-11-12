@@ -65,6 +65,16 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("voice_wanted", false)
         set(v) = prefs.edit().putBoolean("voice_wanted", v).apply()
 
+    /** The text-to-speech voice picked in "Awaaz chuno"; null means the best English one available. */
+    var voiceName: String?
+        get() = prefs.getString("voice_name", null)
+        set(v) = prefs.edit().apply { if (v == null) remove("voice_name") else putString("voice_name", v) }.apply()
+
+    /** Spoken replies in English (the film's Friday) instead of Hinglish read by an English voice. */
+    var speakEnglish: Boolean
+        get() = prefs.getBoolean("speak_english", true)
+        set(v) = prefs.edit().putBoolean("speak_english", v).apply()
+
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()

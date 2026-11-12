@@ -4,14 +4,14 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import dev.friday.assistant.Settings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
-import java.util.Locale
 import java.util.UUID
 import kotlin.coroutines.resume
 
 /** Reads text aloud and returns only once it has finished, so the next step does not talk over it. */
-class Speaker(context: Context) {
+class Speaker(context: Context, private val settings: Settings) {
     private val ready = CompletableDeferred<Boolean>()
     private val tts: TextToSpeech = TextToSpeech(context.applicationContext) { status ->
         ready.complete(status == TextToSpeech.SUCCESS)
@@ -21,7 +21,7 @@ class Speaker(context: Context) {
         if (!ready.await()) return
         val clean = speakable(text)
         if (clean.isBlank()) return
-        tts.language = Locale("en", "IN")
+        Voices.apply(tts, settings)
         tts.setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANT)

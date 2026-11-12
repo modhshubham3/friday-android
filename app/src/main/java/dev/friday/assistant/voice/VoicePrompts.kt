@@ -18,6 +18,7 @@ class VoicePrompts(
     private val context: Context,
     private val listener: Listener,
     private val speaker: Speaker,
+    private val english: Boolean = false,
 ) : UserPrompts {
 
     override suspend fun ensureContacts() = granted(android.Manifest.permission.READ_CONTACTS)
@@ -25,10 +26,11 @@ class VoicePrompts(
     override suspend fun ensureCallPhone() = granted(android.Manifest.permission.CALL_PHONE)
 
     override suspend fun choose(title: String, options: List<String>): Int? {
-        val shown = options.take(ORDINAL_NAMES.size)
-        val list = shown.mapIndexed { i, name -> "${ORDINAL_NAMES[i]}: ${Speaker.speakable(name)}" }.joinToString(". ")
+        val names = if (english) ORDINALS_EN else ORDINALS_HI
+        val shown = options.take(names.size)
+        val list = shown.mapIndexed { i, name -> "${names[i]}: ${Speaker.speakable(name)}" }.joinToString(". ")
         repeat(2) { attempt ->
-            speaker.speak(if (attempt == 0) "$title $list" else "Samajh nahi aaya. $list")
+            speaker.speak(if (attempt == 0) "$title $list" else (if (english) "Sorry, I did not catch that. " else "Samajh nahi aaya. ") + list)
             val heard = hear() ?: return@repeat
             pick(heard, shown)?.let { return it }
         }
@@ -77,7 +79,8 @@ class VoicePrompts(
 
     private companion object {
         const val LISTEN_MS = 12_000L
-        val ORDINAL_NAMES = listOf("Pehla", "Doosra", "Teesra", "Chautha", "Paanchva", "Chhatha")
+        val ORDINALS_HI = listOf("Pehla", "Doosra", "Teesra", "Chautha", "Paanchva", "Chhatha")
+        val ORDINALS_EN = listOf("First", "Second", "Third", "Fourth", "Fifth", "Sixth")
 
         val POSITIONS: Map<String, Int> = buildMap {
             listOf("pehla", "pehle", "pahla", "first", "ek", "one", "1").forEach { put(it, 0) }
