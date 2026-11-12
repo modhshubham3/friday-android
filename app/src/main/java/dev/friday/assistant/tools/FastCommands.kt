@@ -9,7 +9,10 @@ import org.json.JSONObject
  * only ever has to be right about the easy cases.
  */
 object FastCommands {
-    private val TORCH = setOf("torch", "flashlight")
+    private val TORCH = setOf("torch", "flashlight", "flash")
+
+    /** What the speech engine tends to write for the words that matter here (seen in the voice log). */
+    private val HEARD_AS = mapOf("clash" to "flash", "flush" to "flash", "flesh" to "flash")
     private val ON = setOf("on", "chalu", "jalao", "jala", "start", "kholo", "enable")
     private val OFF = setOf("off", "band", "bandh", "bujha", "bujhao", "stop", "disable")
 
@@ -26,15 +29,16 @@ object FastCommands {
 
     fun match(text: String): ToolCall? {
         val words = text.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+            .map { HEARD_AS[it] ?: it }
         if (words.isEmpty() || words.size > 6) return null
         return torch(words) ?: call(words)
     }
 
     private fun torch(words: List<String>): ToolCall? {
-        val about = words.any { it in TORCH } || ("flash" in words && "light" in words)
-        if (!about) return null
+        if (words.none { it in TORCH }) return null
         val on = words.any { it in ON }
-        val off = words.any { it in OFF }
+        // "flash off" comes through as "clash of", so "of" counts as "off" once the subject is clearly the torch.
+        val off = words.any { it in OFF } || "of" in words
         if (on == off) return null // neither, or both: not clear enough to act on
         return ToolCall("fast-torch", "flashlight", JSONObject().put("on", on))
     }

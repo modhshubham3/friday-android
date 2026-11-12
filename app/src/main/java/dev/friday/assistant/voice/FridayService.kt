@@ -47,6 +47,7 @@ class FridayService : Service() {
     private lateinit var wake: WakeWord
     private lateinit var speaker: Speaker
     private lateinit var listener: Listener
+    private lateinit var acks: AckPlayer
     private var wakeLock: PowerManager.WakeLock? = null
 
     private var busy = false   // a conversation is in progress
@@ -60,6 +61,7 @@ class FridayService : Service() {
         wake = WakeWord(this)
         speaker = Speaker(this, settings)
         listener = Listener(this)
+        acks = AckPlayer(this, settings)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "Hey Friday", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Dikhata hai ki Friday wake word sun raha hai"
@@ -120,6 +122,7 @@ class FridayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        scope.launch { acks.prepare() } // record the spoken answers now, so they can play at once later
         VoiceLog.add(this, "Sun raha hu ('Hey Friday' bolo)")
         update("'Hey Friday' bolo")
         return START_STICKY
@@ -137,6 +140,7 @@ class FridayService : Service() {
         scope.cancel()
         wake.release()
         speaker.shutdown()
+        acks.shutdown()
         wakeLock?.takeIf { it.isHeld }?.release()
         VoiceLog.add(this, "Service band")
         super.onDestroy()
@@ -176,7 +180,7 @@ class FridayService : Service() {
         val english = settings.speakEnglish
         // Friday answers to its name out loud; the beep is only the fallback when it cannot speak.
         val ackAt = SystemClock.elapsedRealtime()
-        if (settings.speakAck && speaker.speak(acknowledgement(english))) {
+        if (settings.speakAck && (acks.play() || speaker.speak(acknowledgement(english)))) {
             delay(120) // let the end of Friday's own voice die away before listening
             VoiceLog.add(this, "Jawab diya wake word ka (${since(ackAt)})")
         } else {
@@ -219,9 +223,9 @@ class FridayService : Service() {
         }
     }
 
+    /** Used only when the recorded phrases are not ready, so it speaks one live. */
     private fun acknowledgement(english: Boolean) =
-        if (english) listOf("Yes, boss?", "Go ahead.", "I'm listening.").random()
-        else listOf("Haan boss?", "Boliye.", "Ji, boliye.").random()
+        (if (english) AckPlayer.ENGLISH else AckPlayer.HINGLISH).random()
 
     /** A short beep so it is clear Friday heard its name and is now listening. */
     private suspend fun chime() {

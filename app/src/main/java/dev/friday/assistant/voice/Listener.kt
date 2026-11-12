@@ -2,6 +2,7 @@ package dev.friday.assistant.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -57,15 +58,24 @@ class Listener(private val context: Context) {
                 recognizer.destroy()
             }
         }
-        recognizer.startListening(
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
                 .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                 // Stop soon after the user stops talking, instead of waiting out a long silence.
-                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900L)
-                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 900L),
-        )
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_100L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1_100L)
+        // Hints for the commands Friday really gets, so "flash off" is not heard as "clash of" (Android 13 and up).
+        if (Build.VERSION.SDK_INT >= 33) {
+            request.putStringArrayListExtra(
+                RecognizerIntent.EXTRA_BIASING_STRINGS,
+                arrayListOf(
+                    "torch on", "torch off", "flashlight on", "flashlight off", "flash on", "flash off",
+                    "call", "set an alarm", "cancel the alarm",
+                ),
+            )
+        }
+        recognizer.startListening(request)
     }
 }

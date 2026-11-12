@@ -49,6 +49,14 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <activity
+            android:name=".voice.QuickStartActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".voice.FridayTileService"
             android:exported="true"
