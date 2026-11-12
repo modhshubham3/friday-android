@@ -279,6 +279,7 @@ class MainActivity : ComponentActivity() {
         status.text = "Soch raha hu..."
         setBusy(true)
         showTyping()
+        val startedAt = System.currentTimeMillis()
         lifecycleScope.launch {
             val reply = buildRouter().ask(systemPrompt(), historyForModel(), phoneTools.specs) { call ->
                 val output = phoneTools.run(call)
@@ -298,7 +299,9 @@ class MainActivity : ComponentActivity() {
             }
             addBubble(Bubble(kind, reply.text, viaTool = reply.usedTools))
             saveChat()
-            status.text = reply.provider?.let { "Jawab: $it" } ?: getString(R.string.idle)
+            // The time is shown so it is plain when a reply was slow, and which model caused it.
+            val seconds = (System.currentTimeMillis() - startedAt) / 1000.0
+            status.text = reply.provider?.let { "Jawab: $it · ${"%.1f".format(seconds)}s" } ?: getString(R.string.idle)
             setBusy(false)
             if (speak && ttsReady) tts?.speak(reply.text, TextToSpeech.QUEUE_FLUSH, null, "reply")
         }

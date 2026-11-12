@@ -1,10 +1,22 @@
 package dev.friday.assistant.llm
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Failover router: tries models in order and returns the first success. This is how free tiers
- * stay usable - when one model answers 429 (quota) the same question goes to the next.
+ * Picks a model and runs the conversation turn.
+ *
+ * The first model call is a race: the first model is asked; if it fails, or has not answered
+ * after [HEDGE_MS], the next one is asked as well, and whoever answers first wins. A slow or dead
+ * model therefore costs a few seconds, not its whole timeout. Only the winner's reply is acted
+ * on, so a tool can never run twice.
  *
  * It also runs the tool loop: when a model asks for a tool, [runTool] performs it and, unless the
  * result is already plain enough to show, the result goes back to the same model to put in words.
@@ -13,7 +25,7 @@ class LlmRouter(providers: List<LlmProvider>) {
     private val configured = providers.filter { it.isConfigured }
 
     /**
-     * [errors] lists why earlier models failed, for showing on screen. [usedTools] says a tool ran.
+     * [errors] lists why models failed, for showing on screen. [usedTools] says a tool ran.
      * [direct] says [text] is a tool's own result shown as it is, with no model call after it.
      */
     data class Reply(
@@ -38,22 +50,21 @@ class LlmRouter(providers: List<LlmProvider>) {
         // Models that just failed in a way that will not clear in seconds are skipped, so their
         // failure is not waited on again for every message. If all of them are resting, try them all.
         val candidates = configured.filterNot { ModelHealth.isResting(it.name) }.ifEmpty { configured }
+        val items = history.toMutableList<ChatItem>()
         val errors = mutableListOf<String>()
         val failures = mutableListOf<Throwable>()
-        for ((i, p) in candidates.withIndex()) {
-            // Waiting to retry only pays off when there is no other model to move on to.
-            val result = converse(p, systemPrompt, history, tools, runTool, retry = i == candidates.lastIndex)
-            result.onSuccess {
-                ModelHealth.succeeded(p.name)
-                return Reply(it.text, p.name, errors, it.usedTools, it.direct)
-            }
-            val failure = result.exceptionOrNull() ?: Exception("unknown error")
-            ModelHealth.failed(p.name, failure)
-            failures += failure
-            errors += "${p.name}: ${failure.message}"
-        }
+
+        val (provider, first) = race(candidates, systemPrompt, items, tools, errors, failures)
+            ?: return noAnswer(errors, failures)
+        ModelHealth.succeeded(provider.name)
+        val done = finish(provider, first, systemPrompt, items, tools, runTool)
+            ?: return noAnswer(errors, failures)
+        return Reply(done.text, provider.name, errors, done.usedTools, done.direct)
+    }
+
+    private fun noAnswer(errors: List<String>, failures: List<Throwable>): Reply {
         // Every model failing to even reach Google is the phone being offline, not five separate problems.
-        if (failures.all { it is java.io.IOException }) {
+        if (failures.isNotEmpty() && failures.all { it is java.io.IOException }) {
             return Reply(
                 "Internet nahi mil raha. Wi-Fi ya data check karke dobara try karo.",
                 null,
@@ -63,35 +74,81 @@ class LlmRouter(providers: List<LlmProvider>) {
         return Reply("Abhi koi bhi model jawab nahi de raha.", null, errors)
     }
 
-    /** One model, start to finish. The whole tool exchange stays with this one model. */
-    private suspend fun converse(
-        p: LlmProvider,
+    /** First successful reply wins; null if every model failed. */
+    private suspend fun race(
+        candidates: List<LlmProvider>,
         systemPrompt: String,
-        history: List<ChatMessage>,
+        items: List<ChatItem>,
         tools: List<ToolSpec>,
-        runTool: suspend (ToolCall) -> ToolOutput,
-        retry: Boolean,
-    ): Result<Done> {
-        val items = history.toMutableList<ChatItem>()
-        val toolOutputs = mutableListOf<String>()
-        repeat(MAX_TOOL_STEPS) {
-            val result = chatWithRetry(p, systemPrompt, items, tools, retry)
-            val reply = result.getOrElse { e ->
-                // Tools already acted on the phone. Asking another model to start over would
-                // run them a second time, so report what was done instead.
-                return if (toolOutputs.isNotEmpty()) {
-                    Result.success(Done(toolOutputs.joinToString(" "), usedTools = true, direct = false))
-                } else {
+        errors: MutableList<String>,
+        failures: MutableList<Throwable>,
+    ): Pair<LlmProvider, ModelReply>? {
+        val events = Channel<Pair<LlmProvider, Result<ModelReply>>>(Channel.UNLIMITED)
+        val jobs = mutableListOf<Job>()
+        var next = 0
+        var running = 0
+        val snapshot = items.toList() // later steps add to items; the racers must all see the same request
+
+        fun launchNext() {
+            val p = candidates[next++]
+            running++
+            jobs += scope.launch {
+                val result = try {
+                    p.chat(systemPrompt, snapshot, tools)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     Result.failure(e)
                 }
+                events.trySend(p to result) // trySend: the channel may be closed by then, and that is fine
             }
+        }
+
+        launchNext()
+        try {
+            while (running > 0) {
+                val event = if (next < candidates.size) {
+                    withTimeoutOrNull(HEDGE_MS) { events.receive() }
+                } else {
+                    events.receive()
+                }
+                if (event == null) { // too slow: ask the next model as well
+                    launchNext()
+                    continue
+                }
+                running--
+                val (p, result) = event
+                result.getOrNull()?.let { return p to it }
+                val failure = result.exceptionOrNull() ?: Exception("unknown error")
+                ModelHealth.failed(p.name, failure)
+                failures += failure
+                errors += "${p.name}: ${failure.message}"
+                if (next < candidates.size) launchNext()
+            }
+            return null
+        } finally {
+            // The slower ones are no longer needed. They run in their own scope, so nothing here
+            // waits for a request that is still stuck on the network.
+            jobs.forEach { it.cancel() }
+            events.close()
+        }
+    }
+
+    /** Carries on with the winner: runs its tools and, if needed, lets it put the results into words. */
+    private suspend fun finish(
+        p: LlmProvider,
+        first: ModelReply,
+        systemPrompt: String,
+        items: MutableList<ChatItem>,
+        tools: List<ToolSpec>,
+        runTool: suspend (ToolCall) -> ToolOutput,
+    ): Done? {
+        val toolOutputs = mutableListOf<String>()
+        var reply = first
+        repeat(MAX_TOOL_STEPS) {
             if (reply.toolCalls.isEmpty()) {
                 val text = reply.text.ifBlank { toolOutputs.joinToString(" ") }
-                return if (text.isBlank()) {
-                    Result.failure(IllegalStateException("empty reply"))
-                } else {
-                    Result.success(Done(text, usedTools = toolOutputs.isNotEmpty(), direct = false))
-                }
+                return if (text.isBlank()) null else Done(text, usedTools = toolOutputs.isNotEmpty(), direct = false)
             }
             items += reply.toolCalls
             val stepOutputs = mutableListOf<String>()
@@ -105,26 +162,26 @@ class LlmRouter(providers: List<LlmProvider>) {
             }
             // The tool's own sentence says it all, so skip the second model call: it is both
             // faster and impossible for the model to misreport.
-            if (allFinal) return Result.success(Done(stepOutputs.joinToString(" "), usedTools = true, direct = true))
+            if (allFinal) return Done(stepOutputs.joinToString(" "), usedTools = true, direct = true)
+
+            // Tools already acted on the phone. If the model cannot be reached to explain, report
+            // what was done rather than asking another model to start over and run them again.
+            reply = chatWithRetry(p, systemPrompt, items, tools).getOrElse {
+                return Done(toolOutputs.joinToString(" "), usedTools = true, direct = false)
+            }
         }
         // The model kept asking for tools; stop and report what happened.
-        return Result.success(Done(toolOutputs.joinToString(" "), usedTools = true, direct = false))
+        return Done(toolOutputs.joinToString(" "), usedTools = true, direct = false)
     }
 
-    /**
-     * A 5xx means the provider itself is overloaded or briefly down, which usually clears in
-     * seconds, so the same request can be retried once after a pause. Other failures (bad key,
-     * unknown model, rate limit) will not fix themselves.
-     */
+    /** A 5xx means the provider is briefly overloaded; the same request is retried once after a pause. */
     private suspend fun chatWithRetry(
         p: LlmProvider,
         systemPrompt: String,
         items: List<ChatItem>,
         tools: List<ToolSpec>,
-        retry: Boolean,
     ): Result<ModelReply> {
         var result = p.chat(systemPrompt, items, tools)
-        if (!retry) return result
         for (pauseMs in RETRY_PAUSES_MS) {
             val code = (result.exceptionOrNull() as? LlmHttpException)?.code ?: break
             if (code !in 500..599) break
@@ -135,9 +192,15 @@ class LlmRouter(providers: List<LlmProvider>) {
     }
 
     private companion object {
+        /** How long a model gets before the next one is asked too. */
+        const val HEDGE_MS = 3_000L
+
         val RETRY_PAUSES_MS = listOf(1_000L)
 
         /** Most tool rounds per question, so a confused model cannot loop forever. */
         const val MAX_TOOL_STEPS = 4
+
+        /** Racing requests live here, apart from the screen, so a slow loser never holds anything up. */
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 }

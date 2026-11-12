@@ -21,7 +21,7 @@ internal suspend fun postJson(
         try {
             conn.requestMethod = "POST"
             conn.connectTimeout = 8_000
-            conn.readTimeout = 15_000
+            conn.readTimeout = 10_000
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
