@@ -14,7 +14,7 @@ class Settings(context: Context) {
         set(v) = prefs.edit().putString("gemini_key", v.trim()).apply()
 
     var geminiModel: String
-        get() = prefs.getString("gemini_model", null) ?: "gemini-2.5-flash"
+        get() = prefs.getString("gemini_model", null) ?: "gemini-3.8-flash"
         set(v) = prefs.edit().putString("gemini_model", v.trim()).apply()
 
     var groqKey: String
