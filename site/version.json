@@ -1,1 +1,1 @@
-{"code":118,"name":"0.118","sha256":"a814fe9869322ff3154836cfd4fa06402ebdb5ef37012cb86a7220fe96b16961","size":2604809,"notes":"Race the models so a slow one no longer holds up the reply","time":"2026-11-12T08:59:45Z"}
+{"code":119,"name":"0.119","sha256":"490b922e895ae9b497b87bf0b987dcd7fe1c09649581e07e190e71d7c9c60bea","size":2605758,"notes":"Hide the idle hint under the title","time":"2026-11-12T09:03:28Z"}
