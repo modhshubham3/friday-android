@@ -6,6 +6,8 @@ import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import dev.friday.assistant.Settings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +69,10 @@ class AckPlayer(private val context: Context, private val settings: Settings) {
                     cont.invokeOnCancellation { runCatching { player.release() } }
                     player.prepare() // a file of a second or so: ready almost at once
                     player.start()
+                    // Return a little before the end: the recogniser needs a moment to start, and the tail of the
+                    // phrase is silence, so listening begins sooner without hearing Friday's own voice.
+                    val early = (player.duration - 300).coerceAtLeast(150).toLong()
+                    Handler(Looper.getMainLooper()).postDelayed({ if (cont.isActive) cont.resume(true) }, early)
                 } catch (e: Exception) {
                     runCatching { player.release() }
                     if (cont.isActive) cont.resume(false)

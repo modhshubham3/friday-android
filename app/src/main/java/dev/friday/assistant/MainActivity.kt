@@ -169,6 +169,22 @@ class MainActivity : ComponentActivity() {
                 dialog.show()
             }
 
+        override suspend fun ask(question: String): String? =
+            suspendCancellableCoroutine { cont ->
+                val box = EditText(this@MainActivity)
+                val dialog = AlertDialog.Builder(this@MainActivity)
+                    .setMessage(question)
+                    .setView(box)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        if (cont.isActive) cont.resume(box.text.toString().trim().ifEmpty { null })
+                    }
+                    .setNegativeButton("Rehne do", null)
+                    .setOnDismissListener { if (cont.isActive) cont.resume(null) }
+                    .create()
+                cont.invokeOnCancellation { dialog.dismiss() }
+                dialog.show()
+            }
+
         override suspend fun confirm(message: String, yes: String): Boolean =
             suspendCancellableCoroutine { cont ->
                 val dialog = AlertDialog.Builder(this@MainActivity)

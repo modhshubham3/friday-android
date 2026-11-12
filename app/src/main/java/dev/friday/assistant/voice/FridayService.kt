@@ -251,9 +251,9 @@ class FridayService : Service() {
         val english = settings.speakEnglish // whether answers stay English; plain tool results always are
         // Friday answers to its name out loud; the beep is only the fallback when it cannot speak.
         val ackAt = SystemClock.elapsedRealtime()
-        if (settings.speakAck && (acks.play() || speaker.speak(acknowledgement(english)))) {
-            delay(120) // let the end of Friday's own voice die away before listening
-            VoiceLog.add(this, "Jawab diya wake word ka (${since(ackAt)})")
+        val recorded = settings.speakAck && acks.play()
+        if (recorded || (settings.speakAck && speaker.speak(acknowledgement(english)))) {
+            VoiceLog.add(this, "Jawab diya wake word ka (${since(ackAt)}, ${if (recorded) "pehle se record kiya hua" else "live bola"})")
         } else {
             chime()
         }

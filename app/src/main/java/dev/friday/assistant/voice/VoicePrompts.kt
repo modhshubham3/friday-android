@@ -32,6 +32,7 @@ class VoicePrompts(
         repeat(2) { attempt ->
             speaker.speak(if (attempt == 0) "$title $list" else (if (english) "Sorry, I did not catch that. " else "Samajh nahi aaya. ") + list)
             val heard = hear() ?: return@repeat
+            VoiceLog.add(context, "Poocha: $title -> suna: $heard")
             pick(heard, shown)?.let { return it }
         }
         return null
@@ -39,9 +40,19 @@ class VoicePrompts(
 
     override suspend fun confirm(message: String, yes: String): Boolean {
         speaker.speak(message)
-        val words = words(hear() ?: return false)
+        val heard = hear()
+        val words = words(heard.orEmpty())
         // An answer with any "no" in it is a no, whatever else it says.
-        return words.none { it in NO } && words.any { it in YES }
+        val agreed = heard != null && words.none { it in NO } && words.any { it in YES }
+        VoiceLog.add(context, "Poocha: $message -> suna: ${heard ?: "-"} -> ${if (agreed) "haan" else "nahi"}")
+        return agreed
+    }
+
+    override suspend fun ask(question: String): String? {
+        speaker.speak(question)
+        val heard = hear()?.trim()?.ifEmpty { null }
+        VoiceLog.add(context, "Poocha: $question -> suna: ${heard ?: "-"}")
+        return heard
     }
 
     private suspend fun hear(): String? {
@@ -93,6 +104,7 @@ class VoicePrompts(
 
         val YES = setOf(
             "haan", "han", "ha", "haa", "yes", "yeah", "yep", "ok", "okay", "theek", "thik", "sahi", "kar", "karo", "hata",
+            "send", "bhej", "bhejo", "sure", "go", "correct", "right", "accha", "achha", "pakka", "confirm",
             "हाँ", "हां", "जी", "ठीक", "सही", "करो", "हटाओ", "હા", "કરો", "ઠીક", "બરાબર",
         )
         val NO = setOf(

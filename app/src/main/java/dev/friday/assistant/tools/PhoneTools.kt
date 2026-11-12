@@ -114,8 +114,8 @@ class PhoneTools(
             "Reply to a WhatsApp message. Pass only the exact words to send. The app reads them back and asks the user " +
                 "to confirm, so never ask for confirmation yourself.",
             schema(
-                required = listOf("text"),
-                "text" to prop("string", "The exact words to send"),
+                required = emptyList(),
+                "text" to prop("string", "The exact words to send, only if the user said them. If they did not, leave this empty and the app asks; never make words up"),
                 "to" to prop("string", "Who to reply to; leave out for the message that was just read out"),
             ),
         ),
@@ -468,10 +468,15 @@ class PhoneTools(
     // ---- Inbox ------------------------------------------------------------
 
     private suspend fun replyMessage(to: String, text: String): String {
-        if (text.isBlank()) return "Error: reply mein kya likhna hai? Exact words chahiye"
         val event = Inbox.replyTarget(context, to.takeIf { it.isNotBlank() })
             ?: return say("Reply dene layak koi message nahi mila", "I couldn't find a message I can reply to.")
-        return Inbox.confirmAndSend(context, event, text.trim(), prompts, english)
+        var body = text.trim()
+        if (body.isEmpty()) {
+            // The words were not said, so ask for them rather than let anything be made up.
+            body = prompts.ask(say("${event.sender} ko kya likhu?", "What should I say to ${event.sender}?"))?.trim().orEmpty()
+            if (body.isEmpty()) return say("Theek hai, reply nahi bheja.", "Okay, I have not sent a reply.")
+        }
+        return Inbox.confirmAndSend(context, event, body, prompts, english)
     }
 
     private fun teach(args: JSONObject): String {

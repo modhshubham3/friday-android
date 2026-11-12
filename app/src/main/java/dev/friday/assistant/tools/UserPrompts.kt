@@ -14,6 +14,9 @@ interface UserPrompts {
     /** Shows [options] and returns the index the user tapped, or null if they backed out. */
     suspend fun choose(title: String, options: List<String>): Int?
 
+    /** Asks for a few free words (for instance what to write in a reply). Null if nothing was said or the user backed out. */
+    suspend fun ask(question: String): String?
+
     /** Asks a yes/no question; anything other than tapping [yes] counts as no. */
     suspend fun confirm(message: String, yes: String): Boolean
 }

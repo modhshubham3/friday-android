@@ -66,6 +66,10 @@ object Inbox {
                 else -> "New ${e.app} message from ${if (e.group) "$who in ${e.conv}" else who}."
             }
         }
+        // Emoji and stickers have no words to read, and would come out as silence.
+        if (e.kind != Kind.MAIL && e.text.none { it.isLetterOrDigit() }) {
+            return if (e.group) "In ${e.conv}, $who sent an emoji." else "$who on ${e.app} sent an emoji."
+        }
         val body = clip(e.text, 220)
         val more = if (e.text.length > 220) " Say read all for the rest." else ""
         return when (e.kind) {

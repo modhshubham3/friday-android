@@ -46,7 +46,31 @@ object FastCommands {
     private val ASK_WORDS = setOf("read", "padho", "padh", "sunao", "batao", "bolo", "kya", "new", "naya", "nayi", "aaya", "aayi", "check", "any", "tell", "missed")
     private val NOT_A_READ = setOf("send", "bhejo", "reply", "likho", "write", "jawab", "forward", "delete", "mark", "from", "ka", "ki")
 
+    private val REPLY_START = Regex(
+        "(?is)^\\s*(?:please\\s+|plz\\s+|ok\\s+)?(?:reply|jawab|send|bhejo|bhej do)\\b[\\s,:-]*" +
+            "(?:karo|kar do|de do|bolo|likho|ki|ke|that|saying|him|her|them|it)?[\\s,:-]*(.*)$",
+    )
+    private val TO_SOMEONE = Regex("(?is)^(.+?)\\s+(?:to|ko)\\s+([A-Za-z][A-Za-z ]{0,30})$")
+    private val NOT_A_REPLY = setOf("message", "messages", "mail", "email", "sms", "photo", "location", "money", "file")
+
+    /**
+     * "Reply ok", "send hi to Gauri", "reply de do": answers the message just read out. The words are kept exactly as
+     * said (or asked for when missing), because a model asked to fill a gap tends to make something up.
+     */
+    private fun reply(text: String): ToolCall? {
+        var body = REPLY_START.find(text)?.groupValues?.get(1)?.trim() ?: return null
+        val first = body.lowercase().split(Regex("\\s+")).firstOrNull().orEmpty()
+        if (first in NOT_A_REPLY || body.split(Regex("\\s+")).size > 25) return null
+        var to = ""
+        TO_SOMEONE.find(body)?.let {
+            body = it.groupValues[1].trim()
+            to = it.groupValues[2].trim()
+        }
+        return ToolCall("fast-reply", "reply_message", JSONObject().put("text", body).put("to", to))
+    }
+
     fun match(text: String): ToolCall? {
+        reply(text)?.let { return it }
         // \p{M} keeps the vowel signs that Hindi and Gujarati words are built from; without it they split in pieces.
         val words = text.lowercase().split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.isNotEmpty() }
             .map { HEARD_AS[it] ?: it }
