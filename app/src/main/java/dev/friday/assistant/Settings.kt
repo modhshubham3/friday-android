@@ -1,7 +1,6 @@
 package dev.friday.assistant
 
 import android.content.Context
-import java.io.File
 import org.json.JSONObject
 
 /** A contact the user picked once, so the same words next time go straight to them. */
@@ -60,21 +59,6 @@ class Settings(context: Context) {
         get() = runCatching { JSONObject(prefs.getString("contact_choices", "{}")).length() }.getOrDefault(0)
 
     fun clearSavedContacts() = prefs.edit().remove("contact_choices").apply()
-
-    // ---- "Hey Friday" listening ----
-
-    /** Picovoice AccessKey (free, from console.picovoice.ai). The wake word engine will not start without it. */
-    var picovoiceKey: String
-        get() = prefs.getString("picovoice_key", "").orEmpty()
-        set(v) = prefs.edit().putString("picovoice_key", v.trim()).apply()
-
-    /** "custom" listens for the user's own trained wake word file, anything else for the built-in "Jarvis". */
-    var wakeSource: String
-        get() = prefs.getString("wake_source", null) ?: "jarvis"
-        set(v) = prefs.edit().putString("wake_source", v).apply()
-
-    /** Where a picked wake word (.ppn) file is kept, inside the app's private storage. */
-    fun wakeFile(context: Context) = File(context.filesDir, "wake.ppn")
 
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"

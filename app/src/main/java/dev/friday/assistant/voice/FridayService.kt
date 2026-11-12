@@ -56,7 +56,7 @@ class FridayService : Service() {
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
-        wake = WakeWord(this, settings)
+        wake = WakeWord(this)
         speaker = Speaker(this)
         listener = Listener(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -101,16 +101,24 @@ class FridayService : Service() {
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "friday:listening").apply { acquire() }
         }
-        val problem = wake.start { main.post { onWake() } }
+        val problem = wake.start(
+            onWake = { main.post { onWake() } },
+            onProblem = { reason ->
+                main.post {
+                    VoiceLog.add(this, "Wake word band: $reason")
+                    update("Band ho gaya: $reason")
+                    stopSelf()
+                }
+            },
+        )
         if (problem != null) {
             VoiceLog.add(this, "Wake word start nahi hua: $problem")
             update("Chalu nahi hua: $problem")
             stopSelf()
             return START_NOT_STICKY
         }
-        val phrase = if (settings.wakeSource == "custom" && settings.wakeFile(this).exists()) "Hey Friday" else "Jarvis"
-        VoiceLog.add(this, "Sun raha hu ('$phrase' bolo)")
-        update("'$phrase' bolo")
+        VoiceLog.add(this, "Sun raha hu ('Hey Friday' bolo)")
+        update("'Hey Friday' bolo")
         return START_STICKY
     }
 
@@ -164,8 +172,8 @@ class FridayService : Service() {
             update("Sun raha hu...")
             val heard = withTimeoutOrNull(LISTEN_MS) { listener.listen() }
             if (heard.isNullOrBlank()) {
+                // Stay quiet: a false wake in a quiet room should not make Friday talk to itself.
                 VoiceLog.add(this, "Kuch suna nahi")
-                if (turn == 0) speaker.speak("Kuch sunai nahi diya")
                 return
             }
             VoiceLog.add(this, "Suna: $heard")

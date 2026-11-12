@@ -43,6 +43,7 @@ import dev.friday.assistant.llm.ChatMessage
 import dev.friday.assistant.tools.PhoneTools
 import dev.friday.assistant.tools.UserPrompts
 import dev.friday.assistant.voice.FridayService
+import dev.friday.assistant.voice.ModelStore
 import dev.friday.assistant.voice.Speaker
 import dev.friday.assistant.voice.VoiceLog
 import kotlinx.coroutines.CancellationException
@@ -143,10 +144,6 @@ class MainActivity : ComponentActivity() {
                 cont.invokeOnCancellation { dialog.dismiss() }
                 dialog.show()
             }
-    }
-
-    private val pickWakeFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) saveWakeFile(uri)
     }
 
     private val askMicPermission =
@@ -767,25 +764,13 @@ class MainActivity : ComponentActivity() {
 
     // ---- "Hey Friday": setup, start, log -------------------------------------
 
-    private fun saveWakeFile(uri: Uri) {
-        runCatching {
-            contentResolver.openInputStream(uri)?.use { input ->
-                settings.wakeFile(this).outputStream().use { input.copyTo(it) }
-            } ?: error("file khuli nahi")
-            settings.wakeSource = "custom"
-            status.text = "Wake word file save ho gayi (${settings.wakeFile(this).length() / 1024} KB)"
-        }.onFailure { status.text = "File save nahi hui: ${it.message}" }
-    }
-
     private fun showVoiceSetup() {
         fun granted(p: String) = ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
-        val file = settings.wakeFile(this)
         val battery = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         val info = TextView(this).apply {
             text = listOf(
                 "Service: ${if (FridayService.running) "chalu" else "band"}",
-                "AccessKey: ${if (settings.picovoiceKey.isBlank()) "nahi hai" else "hai"}",
-                "Hey Friday file: ${if (file.exists()) "hai (${file.length() / 1024} KB)" else "nahi hai"}",
+                "Voice model: ${if (ModelStore.isReady(this@MainActivity)) "hai (${ModelStore.sizeMb(this@MainActivity)} MB)" else "download nahi hua"}",
                 "Mic: ${if (granted(Manifest.permission.RECORD_AUDIO)) "ok" else "permission nahi"}",
                 "Contacts aur Call: ${
                     if (granted(Manifest.permission.READ_CONTACTS) && granted(Manifest.permission.CALL_PHONE)) "ok"
@@ -794,35 +779,17 @@ class MainActivity : ComponentActivity() {
                 "Battery: ${if (battery) "unrestricted" else "restricted (neeche button se hatao)"}",
             ).joinToString("\n")
         }
-        val key = EditText(this).apply {
-            hint = "Picovoice AccessKey"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(settings.picovoiceKey)
-        }
-        val source = Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("Jarvis (built-in, abhi test ke liye)", "Hey Friday (meri .ppn file)"),
-            )
-            setSelection(if (settings.wakeSource == "custom") 1 else 0)
-        }
         fun button(label: String, onClick: () -> Unit) = Button(this).apply {
             text = label
             isAllCaps = false
             setOnClickListener { onClick() }
-        }
-        fun label(text: String) = TextView(this).apply {
-            this.text = text
-            setPadding(0, dp(12f).toInt(), 0, 0)
         }
         val pad = dp(20f).toInt()
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
             addView(info)
-            addView(label("Picovoice AccessKey")); addView(key)
-            addView(label("Wake word")); addView(source)
-            addView(button("Hey Friday .ppn file chuno") { pickWakeFile.launch(arrayOf("*/*")) })
+            addView(button("Voice model download karo (~36 MB)") { downloadVoiceModel() })
             addView(button("Battery restriction hatao") {
                 startActivity(
                     Intent(
@@ -836,11 +803,7 @@ class MainActivity : ComponentActivity() {
         AlertDialog.Builder(this)
             .setTitle("Hey Friday setup")
             .setView(ScrollView(this).apply { addView(form) })
-            .setPositiveButton("Chalu karo") { _, _ ->
-                settings.picovoiceKey = key.text.toString()
-                settings.wakeSource = if (source.selectedItemPosition == 1) "custom" else "jarvis"
-                startVoice()
-            }
+            .setPositiveButton("Chalu karo") { _, _ -> startVoice() }
             .setNeutralButton("Band karo") { _, _ ->
                 FridayService.stop(this)
                 status.text = "Hey Friday band kar diya"
@@ -849,13 +812,22 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    private fun startVoice() {
-        if (settings.picovoiceKey.isBlank()) {
-            status.text = "Pehle Picovoice AccessKey daalo"
+    private fun downloadVoiceModel() {
+        if (ModelStore.isReady(this)) {
+            status.text = "Voice model pehle se hai"
             return
         }
-        if (settings.wakeSource == "custom" && !settings.wakeFile(this).exists()) {
-            status.text = "Hey Friday file nahi hai: pehle chuno, ya Jarvis wala option lo"
+        status.text = "Voice model download ho raha hai: 0%"
+        lifecycleScope.launch {
+            ModelStore.download(this@MainActivity) { pct -> status.text = "Voice model download ho raha hai: $pct%" }
+                .onSuccess { status.text = "Voice model taiyaar. Ab Hey Friday setup mein 'Chalu karo' dabao" }
+                .onFailure { status.text = "Download fail: ${it.message}" }
+        }
+    }
+
+    private fun startVoice() {
+        if (!ModelStore.isReady(this)) {
+            status.text = "Pehle Voice model download karo"
             return
         }
         lifecycleScope.launch {

@@ -16,7 +16,7 @@ android {
         versionCode = (findProperty("vCode") as String?)?.toInt() ?: 1
         versionName = (findProperty("vName") as String?) ?: "dev"
 
-        // The wake word engine ships a native library per CPU type; this phone is 64-bit ARM.
+        // The speech engine ships a native library per CPU type; this phone is 64-bit ARM.
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
@@ -57,5 +57,7 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("ai.picovoice:porcupine-android:4.0.2") // on-device wake word, audio never leaves the phone
+    // On-device speech model for the "hey friday" wake word; audio never leaves the phone.
+    implementation("com.alphacephei:vosk-android:0.3.75")
+    implementation("net.java.dev.jna:jna:5.18.1@aar") // carries the native part Vosk loads through
 }

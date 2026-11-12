@@ -39,8 +39,11 @@ jobs:
           name: friday-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
+      # Every push is built, to prove it compiles. Only a commit that says [publish] (or a manual run)
+      # is put on the site, because each published APK is kept in git history for good and is now ~15 MB.
       # The site/ folder is served by Vercel; the app reads version.json from it to self-update.
       - name: Publish APK to the site
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish]')
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk site/friday.apk
           SHA=$(sha256sum site/friday.apk | cut -d' ' -f1)
