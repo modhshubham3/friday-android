@@ -1,1 +1,1 @@
-{"code":133,"name":"0.133","sha256":"8f7e24109628b1c8ec8e1768ed9e3df2074111ef4f301882f3251590f855c215","size":13153780,"notes":"Listen while 'Yes boss' plays, caller announce (kaun call kar raha hai) [publish]","time":"2026-11-12T13:52:40Z"}
+{"code":134,"name":"0.134","sha256":"679ab650fc134d92213b5e50e96893861fabd165de35d5632e8576aa68af8402","size":13153780,"notes":"Earphone mic for wake word, ignore quiet bystander voices, announce incoming calls in drive mode [publish]","time":"2026-11-12T15:19:21Z"}
