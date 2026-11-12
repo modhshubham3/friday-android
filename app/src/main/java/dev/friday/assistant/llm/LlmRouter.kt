@@ -1,5 +1,7 @@
 package dev.friday.assistant.llm
 
+import kotlinx.coroutines.delay
+
 /**
  * Failover router: tries providers in order and returns the first success.
  * This is how free tiers stay usable - when Gemini answers 429 (rate limit),
@@ -17,10 +19,31 @@ class LlmRouter(providers: List<LlmProvider>) {
         }
         val errors = mutableListOf<String>()
         for (p in active) {
-            val result = p.chat(systemPrompt, userText)
+            val result = chatWithRetry(p, systemPrompt, userText)
             result.onSuccess { return Reply(it, p.name, errors) }
             errors += "${p.name}: ${result.exceptionOrNull()?.message ?: "unknown error"}"
         }
         return Reply("Abhi koi bhi model jawab nahi de raha.", null, errors)
+    }
+
+    /**
+     * A 5xx means the provider itself is overloaded or briefly down, which usually
+     * clears in seconds, so the same request is retried with a growing pause.
+     * Other failures (bad key, unknown model, rate limit) will not fix themselves,
+     * so they fall through to the next provider at once.
+     */
+    private suspend fun chatWithRetry(p: LlmProvider, systemPrompt: String, userText: String): Result<String> {
+        var result = p.chat(systemPrompt, userText)
+        for (pauseMs in RETRY_PAUSES_MS) {
+            val code = (result.exceptionOrNull() as? LlmHttpException)?.code ?: break
+            if (code !in 500..599) break
+            delay(pauseMs)
+            result = p.chat(systemPrompt, userText)
+        }
+        return result
+    }
+
+    private companion object {
+        val RETRY_PAUSES_MS = listOf(1_000L, 3_000L)
     }
 }
