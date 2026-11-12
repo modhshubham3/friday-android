@@ -173,8 +173,15 @@ class FridayService : Service() {
 
     private suspend fun converse() {
         VoiceLog.add(this, "Wake word suna")
-        chime()
         val english = settings.speakEnglish
+        // Friday answers to its name out loud; the beep is only the fallback when it cannot speak.
+        val ackAt = SystemClock.elapsedRealtime()
+        if (settings.speakAck && speaker.speak(acknowledgement(english))) {
+            delay(120) // let the end of Friday's own voice die away before listening
+            VoiceLog.add(this, "Jawab diya wake word ka (${since(ackAt)})")
+        } else {
+            chime()
+        }
         val tools = PhoneTools(
             this, settings, VoicePrompts(this, listener, speaker, english),
             fromBackground = true, english = english,
@@ -211,6 +218,10 @@ class FridayService : Service() {
             if (reply.provider == null || !reply.text.trimEnd().endsWith("?")) return
         }
     }
+
+    private fun acknowledgement(english: Boolean) =
+        if (english) listOf("Yes, boss?", "Go ahead.", "I'm listening.").random()
+        else listOf("Haan boss?", "Boliye.", "Ji, boliye.").random()
 
     /** A short beep so it is clear Friday heard its name and is now listening. */
     private suspend fun chime() {

@@ -891,6 +891,10 @@ class MainActivity : ComponentActivity() {
             text = "Bolte waqt English use karo (Friday jaisi)"
             isChecked = settings.speakEnglish
         }
+        val ack = CheckBox(this).apply {
+            text = "Wake word ke baad bolo ('Yes, boss?'), warna sirf beep"
+            isChecked = settings.speakAck
+        }
         val group = RadioGroup(this)
         voices.forEachIndexed { i, voice ->
             group.addView(
@@ -913,6 +917,7 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
             addView(english)
+            addView(ack)
             addView(
                 if (voices.isEmpty()) {
                     TextView(this@MainActivity).apply { text = "Koi English voice installed nahi mili. Neeche se download karo." }
@@ -926,6 +931,7 @@ class MainActivity : ComponentActivity() {
             .setView(ScrollView(this).apply { addView(form) })
             .setPositiveButton("Ye rakho") { _, _ ->
                 settings.speakEnglish = english.isChecked
+                settings.speakAck = ack.isChecked
                 settings.voiceName = voices.getOrNull(chosen)?.name
                 speech?.let { Voices.apply(it, settings) }
             }

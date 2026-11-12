@@ -17,10 +17,11 @@ class Speaker(context: Context, private val settings: Settings) {
         ready.complete(status == TextToSpeech.SUCCESS)
     }
 
-    suspend fun speak(text: String) {
-        if (!ready.await()) return
+    /** Returns whether anything was actually spoken, so a caller can fall back to a beep. */
+    suspend fun speak(text: String): Boolean {
+        if (!ready.await()) return false
         val clean = speakable(text)
-        if (clean.isBlank()) return
+        if (clean.isBlank()) return false
         Voices.apply(tts, settings)
         tts.setAudioAttributes(
             AudioAttributes.Builder()
@@ -40,6 +41,7 @@ class Speaker(context: Context, private val settings: Settings) {
             cont.invokeOnCancellation { tts.stop() }
             tts.speak(clean, TextToSpeech.QUEUE_FLUSH, null, id)
         }
+        return true
     }
 
     fun shutdown() {

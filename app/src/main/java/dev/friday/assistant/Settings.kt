@@ -75,6 +75,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("speak_english", true)
         set(v) = prefs.edit().putBoolean("speak_english", v).apply()
 
+    /** After the wake word Friday says a short "Yes, boss?" instead of only beeping. */
+    var speakAck: Boolean
+        get() = prefs.getBoolean("speak_ack", true)
+        set(v) = prefs.edit().putBoolean("speak_ack", v).apply()
+
     var themeId: String
         get() = prefs.getString("theme", null) ?: "classic"
         set(v) = prefs.edit().putString("theme", v).apply()
