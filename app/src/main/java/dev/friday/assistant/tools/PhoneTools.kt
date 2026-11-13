@@ -548,7 +548,7 @@ class PhoneTools(
             android.content.Intent("app.music.PLAY_QUERY").setPackage("app.music.player").putExtra("q", name),
         )
         return "$name chala rahi hu."
-    }--------------------------------------------------------
+    }
 
     /** Sends the same media key an earphone button sends; whichever app is playing (the music app, YouTube) obeys it. */
     private fun musicControl(action: String): String {
