@@ -84,7 +84,7 @@ object FastCommands {
         if (("kaun" in words || "kon" in words || "who" in words || "kaunsa" in words) && words.any { it in setOf("call", "phone", "calling") } &&
             words.none { it in setOf("lagao", "karo", "kar", "laga") } || ("who" in words && "calling" in words)
         ) return ToolCall("fast-who", "who_calling", JSONObject())
-        return torch(words) ?: call(words) ?: inbox(words) ?: digest(words) ?: drive(words)
+        return torch(words) ?: music(words) ?: call(words) ?: inbox(words) ?: digest(words) ?: drive(words)
     }
 
     /** "Kya aaya?", "messages padho", "any new mail": read out what is new and matters. */
@@ -109,6 +109,19 @@ object FastCommands {
         val off = words.any { it in OFF }
         if (on == off) return null
         return ToolCall("fast-drive", "drive_mode", JSONObject().put("on", on))
+    }
+
+    /** "Pause", "next", "gaana band karo", "music play": the transport keys, no model needed. A song name is not handled here. */
+    private fun music(words: List<String>): ToolCall? {
+        val about = words.any { it in setOf("music", "gaana", "gana", "song", "songs", "gaane") }
+        val action = when {
+            "pause" in words || (about && words.any { it in setOf("band", "stop", "ruko", "roko", "ruk") }) -> "pause"
+            words.any { it in setOf("next", "agla", "skip") } && words.size <= 3 -> "next"
+            words.any { it in setOf("previous", "pichla", "prev") } && words.size <= 3 -> "previous"
+            about && words.any { it in setOf("play", "chalu", "shuru", "bajao", "chalao") } && words.size <= 4 -> "play"
+            else -> return null
+        }
+        return ToolCall("fast-music", "music_control", JSONObject().put("action", action))
     }
 
     private fun torch(words: List<String>): ToolCall? {

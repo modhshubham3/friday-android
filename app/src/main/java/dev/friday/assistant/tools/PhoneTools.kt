@@ -150,6 +150,14 @@ class PhoneTools(
             schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
         ),
         ToolSpec(
+            "music_control",
+            "Control whatever music or video is playing on the phone: pause, resume (play), next song, previous song.",
+            schema(
+                required = listOf("action"),
+                "action" to prop("string", "One of: pause, play, next, previous"),
+            ),
+        ),
+        ToolSpec(
             "flashlight",
             "Turn the phone's flashlight (torch) on or off.",
             schema(
@@ -171,6 +179,7 @@ class PhoneTools(
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
                 "no_compose" -> "Naya message abhi main khud nahi bhej sakti. Aaye hue message ka reply kar sakti hu: bolo 'reply ok'."
+                "music_control" -> musicControl(call.args.optString("action"))
                 "who_calling" -> dev.friday.assistant.inbox.CallerInfo.now()?.let { "$it call kar raha hai." } ?: "Abhi koi call nahi aa raha."
                 "teach" -> teach(call.args)
                 "drive_mode" -> driveMode(call.args.optBoolean("on", true))
@@ -520,6 +529,23 @@ class PhoneTools(
         val removed = InboxDb.get(context).forgetFacts(words)
         return if (removed == 0) say("Aisa kuch yaad nahi tha.", "I didn't have anything like that.")
         else say("Bhool gayi.", "Forgotten.")
+    }
+
+    // ---- Music --------------------------------------------------------------
+
+    /** Sends the same media key an earphone button sends; whichever app is playing (the music app, YouTube) obeys it. */
+    private fun musicControl(action: String): String {
+        val (code, said) = when (action.lowercase()) {
+            "pause", "stop" -> android.view.KeyEvent.KEYCODE_MEDIA_PAUSE to "Music pause kar diya."
+            "play", "resume" -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY to "Music chalu kar diya."
+            "next" -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT to "Agla gaana."
+            "previous", "prev" -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS to "Pichla gaana."
+            else -> return "Error: music_control ka action samajh nahi aaya: $action"
+        }
+        val audio = context.getSystemService(android.media.AudioManager::class.java)
+        audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
+        audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
+        return said
     }
 
     // ---- Flashlight -------------------------------------------------------
