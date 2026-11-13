@@ -150,6 +150,12 @@ class PhoneTools(
             schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
         ),
         ToolSpec(
+            "play_song",
+            "Play a song by name in the user's music app. Use for 'play Kesariya', 'Kesariya bajao', 'Arijit ka koi gaana chalao'. " +
+                "Pass only the song name and/or singer as said; never invent one.",
+            schema(required = listOf("song"), "song" to prop("string", "The song name and/or singer, as the user said it")),
+        ),
+        ToolSpec(
             "music_control",
             "Control whatever music or video is playing on the phone: pause, resume (play), next song, previous song.",
             schema(
@@ -179,6 +185,7 @@ class PhoneTools(
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
                 "no_compose" -> "Naya message abhi main khud nahi bhej sakti. Aaye hue message ka reply kar sakti hu: bolo 'reply ok'."
+                "play_song" -> playSong(call.args.optString("song"))
                 "music_control" -> musicControl(call.args.optString("action"))
                 "who_calling" -> dev.friday.assistant.inbox.CallerInfo.now()?.let { "$it call kar raha hai." } ?: "Abhi koi call nahi aa raha."
                 "teach" -> teach(call.args)
@@ -531,7 +538,17 @@ class PhoneTools(
         else say("Bhool gayi.", "Forgotten.")
     }
 
-    // ---- Music --------------------------------------------------------------
+    // ---- Music ------
+
+    /** Asks the music app (my own, package app.music.player) to search and play. It answers nothing back, so this only says it was asked. */
+    private fun playSong(song: String): String {
+        val name = song.trim()
+        if (name.isEmpty()) return "Kaunsa gaana bajana hai? Naam bolo."
+        context.sendBroadcast(
+            android.content.Intent("app.music.PLAY_QUERY").setPackage("app.music.player").putExtra("q", name),
+        )
+        return "$name chala rahi hu."
+    }--------------------------------------------------------
 
     /** Sends the same media key an earphone button sends; whichever app is playing (the music app, YouTube) obeys it. */
     private fun musicControl(action: String): String {

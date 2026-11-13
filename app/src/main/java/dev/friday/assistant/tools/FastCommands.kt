@@ -84,7 +84,7 @@ object FastCommands {
         if (("kaun" in words || "kon" in words || "who" in words || "kaunsa" in words) && words.any { it in setOf("call", "phone", "calling") } &&
             words.none { it in setOf("lagao", "karo", "kar", "laga") } || ("who" in words && "calling" in words)
         ) return ToolCall("fast-who", "who_calling", JSONObject())
-        return torch(words) ?: music(words) ?: call(words) ?: inbox(words) ?: digest(words) ?: drive(words)
+        return torch(words) ?: music(words) ?: song(words) ?: call(words) ?: inbox(words) ?: digest(words) ?: drive(words)
     }
 
     /** "Kya aaya?", "messages padho", "any new mail": read out what is new and matters. */
@@ -122,6 +122,17 @@ object FastCommands {
             else -> return null
         }
         return ToolCall("fast-music", "music_control", JSONObject().put("action", action))
+    }
+
+    /** "Play Kesariya", "Kesariya bajao", "Arijit ka gaana chalao": the words left after the play word are the song. */
+    private fun song(words: List<String>): ToolCall? {
+        val verbs = setOf("play", "bajao", "chalao", "baja", "chala", "lagao")
+        if (words.none { it in verbs }) return null
+        val skip = verbs + setOf("karo", "kar", "do", "de", "ka", "ki", "ko", "gaana", "gana", "song", "music", "mera", "mere", "koi", "ek", "please", "the", "a", "plz")
+        val rest = words.filter { it !in skip }
+        if (rest.isEmpty() || rest.size > 4) return null
+        if (rest.any { w -> w.any { it.code > 127 } }) return null // Hindi script: the model turns it into letters
+        return ToolCall("fast-song", "play_song", JSONObject().put("song", rest.joinToString(" ")))
     }
 
     private fun torch(words: List<String>): ToolCall? {
