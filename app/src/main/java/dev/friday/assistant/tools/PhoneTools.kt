@@ -599,7 +599,7 @@ class PhoneTools(
             }
             name = contact.name
         }
-        if (!prompts.confirm(say("$name ko WhatsApp pe bhejun: $words ?", "Send to $name on WhatsApp: $words ?"))) {
+        if (!prompts.confirm(say("$name ko WhatsApp pe bhejun: $words ?", "Send to $name on WhatsApp: $words ?"), say("Bhejo", "Send"))) {
             return say("Theek hai, message nahi bheja.", "Okay, I have not sent it.")
         }
         var d = digits(number)
