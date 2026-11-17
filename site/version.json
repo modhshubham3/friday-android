@@ -1,1 +1,1 @@
-{"code":148,"name":"0.148","sha256":"7718a64b405831944c323984c62bbb0f29c163f75d25ad809b11182fb4a83f09","size":13171662,"notes":"Accessibility: self-enable when WRITE_SECURE_SETTINGS is granted, else open the service page; web search tries more models [publish]","time":"2026-11-17T09:04:49Z"}
+{"code":149,"name":"0.149","sha256":"735fc9eed615891b38118a32e54ee85d400c5a46883fd464f2aa0c6b1ba9e61a","size":13171656,"notes":"Web search: Tavily as a second source with its own quota [publish]","time":"2026-11-17T09:09:19Z"}
