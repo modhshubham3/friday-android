@@ -150,6 +150,16 @@ class PhoneTools(
             schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
         ),
         ToolSpec(
+            "whatsapp_call",
+            "Call a contact THROUGH WhatsApp (voice or video), not the normal phone line. Use when the user says 'WhatsApp pe call karo' " +
+                "or 'WhatsApp video call'. For an ordinary call use make_call instead.",
+            schema(
+                required = listOf("name"),
+                "name" to prop("string", "The contact's name"),
+                "video" to prop("boolean", "true for a video call, false or left out for a voice call"),
+            ),
+        ),
+        ToolSpec(
             "send_whatsapp",
             "Send a NEW WhatsApp message to a contact by name or number: opens the chat and presses Send. Use for 'Gauri ko WhatsApp pe bolo ki …', " +
                 "'WhatsApp message karo …'. The app reads the words back and asks the user to confirm, so never ask yourself.",
@@ -206,6 +216,7 @@ class PhoneTools(
                 "read_messages" -> Inbox.readNew(context, call.args.optString("from").takeIf { it.isNotBlank() }, english)
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
+                "whatsapp_call" -> whatsappCall(call.args.optString("name"), call.args.optBoolean("video", false))
                 "send_whatsapp" -> sendWhatsapp(call.args.optString("to"), call.args.optString("text"))
                 "web_search" -> webSearch(call.args.optString("question"))
                 "open_link" -> openLink(call.args.optString("url"))
@@ -560,6 +571,43 @@ class PhoneTools(
         val removed = InboxDb.get(context).forgetFacts(words)
         return if (removed == 0) say("Aisa kuch yaad nahi tha.", "I didn't have anything like that.")
         else say("Bhool gayi.", "Forgotten.")
+    }
+
+    // ---- WhatsApp call -----------------------------------------------------------
+
+    /**
+     * WhatsApp adds a hidden "voice call" and "video call" row to every contact that uses it. Opening that row starts the call in WhatsApp
+     * itself, with no tapping.
+     */
+    private suspend fun whatsappCall(name: String, video: Boolean): String {
+        val raw = name.trim()
+        if (raw.isEmpty()) return say("Kisko WhatsApp call karun?", "Who should I call on WhatsApp?")
+        if (!prompts.ensureContacts()) return "Error: contacts ki permission nahi mili"
+        val book = loadContacts()
+        val matches = rank(book, raw)
+        if (matches.isEmpty()) return "Error: '$raw' se milta koi contact nahi mila. User se poocho kaunsa naam hai"
+        val contact = matches.singleOrNull()?.takeIf { it.score <= 1 } ?: run {
+            val i = prompts.choose(say("Kisko WhatsApp call karun?", "Who should I call?"), matches.map { it.name })
+                ?: return say("Theek hai, call nahi kiya", "Okay, I will not call.")
+            matches[i]
+        }
+        val mime = if (video) "vnd.android.cursor.item/vnd.com.whatsapp.video.call" else "vnd.android.cursor.item/vnd.com.whatsapp.voip.call"
+        val rowId = withContext(Dispatchers.IO) {
+            context.contentResolver.query(
+                ContactsContract.Data.CONTENT_URI, arrayOf(ContactsContract.Data._ID),
+                "${ContactsContract.Data.MIMETYPE}=? AND ${ContactsContract.Data.DISPLAY_NAME}=?", arrayOf(mime, contact.name), null,
+            )?.use { if (it.moveToFirst()) it.getLong(0) else null }
+        } ?: return "Error: ${contact.name} ke paas WhatsApp nahi mila (ya WhatsApp ne contact sync nahi kiya)"
+        return try {
+            launch(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(Uri.parse("content://com.android.contacts/data/$rowId"), mime)
+                    .setPackage("com.whatsapp"),
+            )
+            say("${contact.name} ko WhatsApp ${if (video) "video " else ""}call lagayi ja rahi hai.", "Calling ${contact.name} on WhatsApp.")
+        } catch (e: Exception) {
+            "Error: WhatsApp call shuru nahi hui (${e.message ?: "phone ne roka"}); screen band ho to Android background se WhatsApp nahi kholne deta"
+        }
     }
 
     // ---- New WhatsApp message --------------------------------------------------
