@@ -30,7 +30,7 @@ class Listener(private val context: Context, private val settings: Settings) {
                 lastError == SpeechRecognizer.ERROR_CLIENT || lastError == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
             if (!transient || attempt == 2) return null
             VoiceLog.add(context, "Speech dobara try ($lastError)")
-            delay(400)
+            delay(150)
         }
         return null
     }

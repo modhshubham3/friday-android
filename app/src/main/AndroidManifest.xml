@@ -26,6 +26,11 @@
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <!-- Lets Friday find an app by name, to open it. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <!-- Lets Friday show the names of the chat and mail apps it listens to. -->
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />

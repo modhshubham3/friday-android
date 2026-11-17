@@ -74,6 +74,7 @@ object FastCommands {
         // \p{M} keeps the vowel signs that Hindi and Gujarati words are built from; without it they split in pieces.
         val words = text.lowercase().split(Regex("[^\\p{L}\\p{M}\\p{N}]+")).filter { it.isNotEmpty() }
             .map { HEARD_AS[it] ?: it }
+        whatsappCall(words)?.let { return it } // a few words longer than the others: "me office ko whatsapp par call karo"
         if (words.isEmpty() || words.size > 6) return null
         if (("kaun" in words || "kon" in words || "who" in words || "kaunsa" in words) && words.any { it in setOf("call", "phone", "calling") } &&
             words.none { it in setOf("lagao", "karo", "kar", "laga") } || ("who" in words && "calling" in words)
@@ -127,6 +128,17 @@ object FastCommands {
         if (rest.isEmpty() || rest.size > 4) return null
         if (rest.any { w -> w.any { it.code > 127 } }) return null // Hindi script: the model turns it into letters
         return ToolCall("fast-song", "play_song", JSONObject().put("song", rest.joinToString(" ")))
+    }
+
+    /** "Snapchat open karo", "open Instagram", "YouTube kholo". The words left after the open word are the app. */
+    private fun openApp(words: List<String>): ToolCall? {
+        val verbs = setOf("open", "kholo", "khol", "launch", "start", "chalu", "kholna")
+        if (words.none { it in verbs }) return null
+        val skip = verbs + FILLER + setOf("app", "application", "par", "pe", "ko", "me", "mein", "jao", "ja", "the", "a", "my")
+        val rest = words.filter { it !in skip }
+        if (rest.isEmpty() || rest.size > 3) return null
+        if (rest.any { w -> w.any { it.code > 127 } }) return null
+        return ToolCall("fast-openapp", "open_app", JSONObject().put("name", rest.joinToString(" ")))
     }
 
     private fun torch(words: List<String>): ToolCall? {

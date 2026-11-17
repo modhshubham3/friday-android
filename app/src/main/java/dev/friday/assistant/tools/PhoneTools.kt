@@ -65,6 +65,16 @@ class PhoneTools(
         context.startActivity(intent)
     }
 
+    /**
+     * Starts a screen. From the background (the voice service) Android refuses, but an enabled accessibility service is allowed to,
+     * so when Friday's one is on it does the starting.
+     */
+    private fun launchAnywhere(intent: Intent) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val helper = dev.friday.assistant.agent.FridayAccessibility.instance
+        if (fromBackground && helper != null) helper.startActivity(intent) else launch(intent)
+    }
+
     val specs: List<ToolSpec> = listOf(
         ToolSpec(
             "set_alarm",
@@ -150,6 +160,11 @@ class PhoneTools(
             schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
         ),
         ToolSpec(
+            "open_app",
+            "Open an installed app by its name, such as Snapchat, Instagram, YouTube, Maps, Camera. Use for 'Snapchat open karo', 'open Instagram'.",
+            schema(required = listOf("name"), "name" to prop("string", "The app's name as the user said it")),
+        ),
+        ToolSpec(
             "whatsapp_call",
             "Call a contact THROUGH WhatsApp (voice or video), not the normal phone line. Use when the user says 'WhatsApp pe call karo' " +
                 "or 'WhatsApp video call'. For an ordinary call use make_call instead.",
@@ -216,6 +231,7 @@ class PhoneTools(
                 "read_messages" -> Inbox.readNew(context, call.args.optString("from").takeIf { it.isNotBlank() }, english)
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
+                "open_app" -> openApp(call.args.optString("name"))
                 "whatsapp_call" -> whatsappCall(call.args.optString("name"), call.args.optBoolean("video", false))
                 "send_whatsapp" -> sendWhatsapp(call.args.optString("to"), call.args.optString("text"))
                 "web_search" -> webSearch(call.args.optString("question"))
@@ -573,6 +589,41 @@ class PhoneTools(
         else say("Bhool gayi.", "Forgotten.")
     }
 
+    // ---- Open an app -------------------------------------------------------------
+
+    private suspend fun openApp(name: String): String {
+        val wanted = normalize(name)
+        if (wanted.isEmpty()) return say("Kaunsa app kholna hai?", "Which app should I open?")
+        val pm = context.packageManager
+        val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }.distinctBy { it.first }
+        val ranked = apps.mapNotNull { (pkg, label) ->
+            val n = normalize(label)
+            val score = when {
+                n == wanted -> 0
+                n.startsWith(wanted) || wanted.startsWith(n) && n.length >= 3 -> 1
+                n.contains(wanted) && wanted.length >= 3 -> 2
+                else -> return@mapNotNull null
+            }
+            Triple(pkg, label, score)
+        }.sortedWith(compareBy({ it.third }, { it.second }))
+        if (ranked.isEmpty()) return "Error: '$name' naam ka koi app nahi mila"
+        val best = ranked.first()
+        val tied = ranked.filter { it.third == best.third }
+        val pick = if (tied.size == 1) best else {
+            val i = prompts.choose(say("Kaunsa app?", "Which app?"), tied.take(4).map { it.second })
+                ?: return say("Theek hai, kuch nahi khola.", "Okay, I opened nothing.")
+            tied[i]
+        }
+        val intent = pm.getLaunchIntentForPackage(pick.first) ?: return "Error: ${pick.second} khul nahi sakta"
+        return try {
+            launchAnywhere(intent)
+            say("${pick.second} khol diya.", "Opening ${pick.second}.")
+        } catch (e: Exception) {
+            "Error: ${pick.second} khul nahi paya (${e.message ?: "phone ne roka"}); screen band ho to Android background se app nahi kholne deta"
+        }
+    }
+
     // ---- WhatsApp call -----------------------------------------------------------
 
     /**
@@ -584,11 +635,15 @@ class PhoneTools(
         if (raw.isEmpty()) return say("Kisko WhatsApp call karun?", "Who should I call on WhatsApp?")
         if (!prompts.ensureContacts()) return "Error: contacts ki permission nahi mili"
         val book = loadContacts()
-        val matches = rank(book, raw)
+        val key = normalize(raw)
+        // The same choice as for ordinary calls: once "office" meant "Me Office", it is not asked again.
+        val remembered = settings.savedContact(key)?.let { saved -> book[saved.name]?.let { Contact(saved.name, it, 0) } }
+        val matches = if (remembered != null) listOf(remembered) else rank(book, raw)
         if (matches.isEmpty()) return "Error: '$raw' se milta koi contact nahi mila. User se poocho kaunsa naam hai"
         val contact = matches.singleOrNull()?.takeIf { it.score <= 1 } ?: run {
             val i = prompts.choose(say("Kisko WhatsApp call karun?", "Who should I call?"), matches.map { it.name })
                 ?: return say("Theek hai, call nahi kiya", "Okay, I will not call.")
+            settings.saveContact(key, SavedContact(matches[i].name, matches[i].numbers.firstOrNull().orEmpty()))
             matches[i]
         }
         val mime = if (video) "vnd.android.cursor.item/vnd.com.whatsapp.video.call" else "vnd.android.cursor.item/vnd.com.whatsapp.voip.call"
@@ -599,7 +654,7 @@ class PhoneTools(
             )?.use { if (it.moveToFirst()) it.getLong(0) else null }
         } ?: return "Error: ${contact.name} ke paas WhatsApp nahi mila (ya WhatsApp ne contact sync nahi kiya)"
         return try {
-            launch(
+            launchAnywhere(
                 Intent(Intent.ACTION_VIEW)
                     .setDataAndType(Uri.parse("content://com.android.contacts/data/$rowId"), mime)
                     .setPackage("com.whatsapp"),
@@ -660,7 +715,7 @@ class PhoneTools(
         if (d.length == 10) d = "91$d" // a local number: India
         val pending = dev.friday.assistant.agent.WhatsAppSend.start(words)
         try {
-            launch(
+            launchAnywhere(
                 Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$d?text=" + Uri.encode(words))).setPackage("com.whatsapp"),
             )
         } catch (e: Exception) {
@@ -689,9 +744,8 @@ class PhoneTools(
     private fun openLink(url: String): String {
         val link = url.trim()
         if (!link.startsWith("https://")) return "Error: sirf https link khul sakta hai"
-        if (fromBackground) return "User ko ye link chat me dikhao, awaaz me khol nahi sakte: $link"
         return try {
-            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            launchAnywhere(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
             "Link khol diya: $link"
         } catch (e: Exception) {
             "Link nahi khula: $link"
