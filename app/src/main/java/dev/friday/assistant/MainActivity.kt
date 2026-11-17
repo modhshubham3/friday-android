@@ -953,6 +953,7 @@ class MainActivity : ComponentActivity() {
         val groqKey = field("Groq API key (optional)", settings.groqKey, secret = true)
         val groqModel = field("Groq model", settings.groqModel)
         val extra = field("Extra models (har line: naam,url,model,key)", settings.extraProviders)
+        val tavily = field("Tavily API key (web search, free)", settings.tavilyKey, secret = true)
         val lookPicker = picker(Look.LOOKS.map { it.label }, Look.LOOKS.indexOfFirst { it.id == settings.lookId })
         val themePicker = picker(Look.THEMES.map { it.label }, Look.THEMES.indexOfFirst { it.id == settings.themeId })
         val sizePicker = picker(Look.SIZES.map { it.label }, Look.SIZES.indexOfFirst { it.id == settings.sizeId })
@@ -1001,7 +1002,7 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener { showVoiceSetup() }
             })
             addView(label("AI models"))
-            listOf(geminiKey, geminiModel, groqKey, groqModel, extra).forEach(::addView)
+            listOf(geminiKey, geminiModel, groqKey, groqModel, extra, tavily).forEach(::addView)
         }
         AlertDialog.Builder(this)
             .setTitle("Settings (build ${Updater.installedCode(this)})")
@@ -1018,6 +1019,7 @@ class MainActivity : ComponentActivity() {
                 settings.groqKey = groqKey.text.toString()
                 settings.groqModel = groqModel.text.toString()
                 settings.extraProviders = extra.text.toString()
+                settings.tavilyKey = tavily.text.toString()
                 applyLook()
             }
             .setNegativeButton(android.R.string.cancel, null)

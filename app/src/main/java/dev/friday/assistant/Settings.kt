@@ -39,6 +39,11 @@ class Settings(context: Context) {
         get() = prefs.getString("extra_providers", "").orEmpty()
         set(v) = prefs.edit().putString("extra_providers", v.trim()).apply()
 
+    /** Key for Tavily, a web search made for assistants (free: 1000 searches a month), used when Gemini's own search is out of quota. */
+    var tavilyKey: String
+        get() = prefs.getString("tavily_key", "").orEmpty()
+        set(v) = prefs.edit().putString("tavily_key", v.trim()).apply()
+
     var groqModel: String
         get() = prefs.getString("groq_model", null) ?: "llama-3.3-70b-versatile"
         set(v) = prefs.edit().putString("groq_model", v.trim()).apply()

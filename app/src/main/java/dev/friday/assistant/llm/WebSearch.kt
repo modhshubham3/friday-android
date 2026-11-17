@@ -8,6 +8,28 @@ import org.json.JSONObject
  * A separate request from the chat one: Gemini does not always allow search and the app's own tools in the same call.
  */
 object WebSearch {
+    /** Tavily: a search API built for assistants. It answers in a few sentences and lists the pages it used. */
+    suspend fun tavily(apiKey: String, question: String): Result<String> {
+        if (apiKey.isBlank()) return Result.failure(IllegalStateException("Tavily key nahi hai"))
+        val body = JSONObject().put("query", question).put("include_answer", true).put("max_results", 5).put("search_depth", "basic")
+        return postJson("https://api.tavily.com/search", mapOf("Authorization" to "Bearer $apiKey"), body.toString(), readTimeoutMs = 25_000).mapCatching { raw ->
+            val o = JSONObject(raw)
+            val out = StringBuilder(o.optString("answer"))
+            val results = o.optJSONArray("results")
+            if (results != null) {
+                out.append("\nSources:")
+                for (i in 0 until minOf(results.length(), 5)) {
+                    val r = results.getJSONObject(i)
+                    out.append("\n- ").append(r.optString("title")).append(": ").append(r.optString("url"))
+                    val snippet = r.optString("content").take(220)
+                    if (snippet.isNotBlank()) out.append("\n  ").append(snippet.replace('\n', ' '))
+                }
+            }
+            if (out.isBlank()) error("khali jawab")
+            out.toString().trim()
+        }
+    }
+
     suspend fun search(apiKey: String, models: List<String>, question: String): Result<String> {
         if (apiKey.isBlank()) return Result.failure(IllegalStateException("Gemini key nahi hai"))
         var last: Throwable = IllegalStateException("koi model nahi")

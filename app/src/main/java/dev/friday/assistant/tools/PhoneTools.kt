@@ -629,6 +629,9 @@ class PhoneTools(
 
     private suspend fun webSearch(question: String): String {
         if (question.isBlank()) return "Error: kya dhoondhna hai, ye nahi bataya"
+        // Tavily first when there is a key (it has its own quota), then Gemini's built-in Google Search.
+        val tavily = if (settings.tavilyKey.isNotBlank()) dev.friday.assistant.llm.WebSearch.tavily(settings.tavilyKey, question) else null
+        if (tavily != null && tavily.isSuccess) return tavily.getOrThrow()
         return dev.friday.assistant.llm.WebSearch.search(settings.geminiKey, settings.geminiModels, question).getOrElse {
             "Error: web search nahi chali (${it.message ?: it.javaClass.simpleName})"
         }
