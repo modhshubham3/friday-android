@@ -150,6 +150,18 @@ class PhoneTools(
             schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
         ),
         ToolSpec(
+            "web_search",
+            "Look something up on the web right now: bus or train options and prices, flight fares, opening hours, news, " +
+                "anything the phone's own tools cannot answer. Ask it the full question with every detail (route, date, number of people, " +
+                "what matters: cheapest, best rated, sleeper). It returns facts with source links; use them, never answer such questions from memory.",
+            schema(required = listOf("question"), "question" to prop("string", "The complete question to search for, in English")),
+        ),
+        ToolSpec(
+            "open_link",
+            "Open a web link (a booking page, a map, a search page) on the phone. Use after web_search when the user wants to book or see it.",
+            schema(required = listOf("url"), "url" to prop("string", "A full https link taken from search results; never invent one")),
+        ),
+        ToolSpec(
             "play_song",
             "Play a song by name in the user's music app. Use for 'play Kesariya', 'Kesariya bajao', 'Arijit ka koi gaana chalao'. " +
                 "Pass only the song name and/or singer as said; never invent one.",
@@ -185,6 +197,8 @@ class PhoneTools(
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
                 "no_compose" -> "Naya message abhi main khud nahi bhej sakti. Aaye hue message ka reply kar sakti hu: bolo 'reply ok'."
+                "web_search" -> webSearch(call.args.optString("question"))
+                "open_link" -> openLink(call.args.optString("url"))
                 "play_song" -> playSong(call.args.optString("song"))
                 "music_control" -> musicControl(call.args.optString("action"))
                 "who_calling" -> dev.friday.assistant.inbox.CallerInfo.now()?.let { "$it call kar raha hai." } ?: "Abhi koi call nahi aa raha."
@@ -202,7 +216,7 @@ class PhoneTools(
         // A plain result is shown to the user as it is. Errors, and anything written for the model
         // ("User ko ... bolo"), go back to the model to put into words; so does get_next_alarm,
         // which only exists to give the model something to ask the user about.
-        val forModel = call.name == "get_next_alarm" || text.startsWith("Error:") ||
+        val forModel = call.name == "get_next_alarm" || call.name == "web_search" || text.startsWith("Error:") ||
             text.contains("user ko", ignoreCase = true) || text.contains("user se", ignoreCase = true)
         return ToolOutput(text, final = !forModel)
     }
@@ -536,6 +550,28 @@ class PhoneTools(
         val removed = InboxDb.get(context).forgetFacts(words)
         return if (removed == 0) say("Aisa kuch yaad nahi tha.", "I didn't have anything like that.")
         else say("Bhool gayi.", "Forgotten.")
+    }
+
+    // ---- Web ----------------------------------------------------------------
+
+    private suspend fun webSearch(question: String): String {
+        if (question.isBlank()) return "Error: kya dhoondhna hai, ye nahi bataya"
+        return dev.friday.assistant.llm.WebSearch.search(settings.geminiKey, settings.geminiModels, question).getOrElse {
+            "Error: web search nahi chali (${it.message ?: it.javaClass.simpleName})"
+        }
+    }
+
+    /** Opens a link in the browser. From the background Android refuses, so then the link is only handed back to be tapped in the chat. */
+    private fun openLink(url: String): String {
+        val link = url.trim()
+        if (!link.startsWith("https://")) return "Error: sirf https link khul sakta hai"
+        if (fromBackground) return "User ko ye link chat me dikhao, awaaz me khol nahi sakte: $link"
+        return try {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            "Link khol diya: $link"
+        } catch (e: Exception) {
+            "Link nahi khula: $link"
+        }
     }
 
     // ---- Music ------

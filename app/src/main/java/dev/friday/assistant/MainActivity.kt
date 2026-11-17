@@ -606,6 +606,8 @@ class MainActivity : ComponentActivity() {
             text = b.text
             typeface = bodyFont()
             setTextIsSelectable(true)
+            autoLinkMask = android.text.util.Linkify.WEB_URLS // a link in an answer can be tapped
+            setLinkTextColor(s.accent)
             setPadding(padH, padV, padH, padV)
             // Bubbles stop at 82% of the screen so it is clear at a glance who said what.
             maxWidth = (resources.displayMetrics.widthPixels * 0.82f).toInt()

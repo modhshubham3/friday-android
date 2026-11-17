@@ -15,13 +15,14 @@ internal suspend fun postJson(
     url: String,
     headers: Map<String, String>,
     body: String,
+    readTimeoutMs: Int = 10_000,
 ): Result<String> = withContext(Dispatchers.IO) {
     try {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "POST"
             conn.connectTimeout = 8_000
-            conn.readTimeout = 10_000
+            conn.readTimeout = readTimeoutMs
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
