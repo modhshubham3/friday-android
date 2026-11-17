@@ -141,6 +141,17 @@ object FastCommands {
         return ToolCall("fast-openapp", "open_app", JSONObject().put("name", rest.joinToString(" ")))
     }
 
+    /** "Office ko WhatsApp pe call karo", "Gauri ko whatsapp video call": a call made through WhatsApp, not the phone line. */
+    private fun whatsappCall(words: List<String>): ToolCall? {
+        val wa = setOf("whatsapp", "whatsap", "whstapp", "whtsapp", "watsapp", "whatsup", "वाट्सएप", "व्हाट्सएप")
+        if (words.none { it in wa } || words.none { it in CALL_WORDS }) return null
+        val video = "video" in words
+        val skip = FILLER + wa + setOf("pe", "par", "se", "on", "via", "video", "voice", "ke", "through", "by", "ye", "karna", "mein", "me")
+        val rest = words.filter { it !in skip }
+        if (rest.isEmpty() || rest.size > 3) return null
+        return ToolCall("fast-wacall", "whatsapp_call", JSONObject().put("name", rest.joinToString(" ")).put("video", video))
+    }
+
     private fun torch(words: List<String>): ToolCall? {
         if (words.none { it in TORCH }) return null
         val on = words.any { it in ON }
