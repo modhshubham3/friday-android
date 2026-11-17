@@ -1,1 +1,1 @@
-{"code":145,"name":"0.145","sha256":"c384622f8b9014fe2869a637c6962a0c54fbb079a48eed70b2c0b004c537306f","size":13153787,"notes":"Web search (Gemini + Google Search) and open_link so Friday can look things up and hand over booking links [publish]","time":"2026-11-17T08:50:21Z"}
+{"code":147,"name":"0.147","sha256":"1db74f736f4fff97effafb3123925b954fb4d569a5fdd4330b40b43c838fbcdb","size":13171623,"notes":"Fix confirm call [publish]","time":"2026-11-17T09:00:12Z"}
