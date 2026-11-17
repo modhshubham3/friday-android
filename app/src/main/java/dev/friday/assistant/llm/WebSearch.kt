@@ -11,8 +11,8 @@ object WebSearch {
     suspend fun search(apiKey: String, models: List<String>, question: String): Result<String> {
         if (apiKey.isBlank()) return Result.failure(IllegalStateException("Gemini key nahi hai"))
         var last: Throwable = IllegalStateException("koi model nahi")
-        for (model in models.take(3)) {
-            if (ModelHealth.isResting("search:$model")) continue
+        for (model in models.take(6)) {
+            if (ModelHealth.isResting("search:$model") || ModelHealth.isResting("Gemini $model")) continue
             val body = JSONObject()
                 .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", question)))))
                 .put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))

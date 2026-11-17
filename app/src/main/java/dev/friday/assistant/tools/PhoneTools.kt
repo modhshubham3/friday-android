@@ -572,10 +572,16 @@ class PhoneTools(
             if (asked.isEmpty()) return say("Theek hai, message nahi bheja.", "Okay, I have not sent it.")
             return sendWhatsapp(to, asked)
         }
-        if (!dev.friday.assistant.agent.FridayAccessibility.isEnabled(context)) {
-            launch(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            return "Error: Accessibility chalu nahi hai. User ko batao: Settings me Friday chalu kare, tabhi WhatsApp ka Send khud dab sakta hai"
+        if (!dev.friday.assistant.agent.FridayAccessibility.tryEnable(context)) {
+            // Android lets nobody switch this on for the user. Open the one page where it is a single tap.
+            try {
+                launch(dev.friday.assistant.agent.FridayAccessibility.settingsIntent(context))
+            } catch (e: Exception) {
+                runCatching { launch(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            }
+            return "Error: Accessibility abhi band hai. Maine uska page khol diya hai. User ko batao: Friday ko On kare, phir wahi message dobara bole"
         }
+        if (!dev.friday.assistant.agent.FridayAccessibility.isEnabled(context)) kotlinx.coroutines.delay(1_200) // the service needs a moment to start
         // Who: a number is used as it is; a name goes through the same contact matching as calls.
         val raw = to.trim()
         val number: String

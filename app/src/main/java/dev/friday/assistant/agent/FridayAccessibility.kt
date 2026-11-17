@@ -67,6 +67,31 @@ class FridayAccessibility : AccessibilityService() {
             private set
         @Volatile var pending: PendingWhatsApp? = null
 
+        /**
+         * Switches the service on by itself, but only if the phone let this app write secure settings. Android never grants that
+         * to an ordinary install; it is given once from a computer (adb shell pm grant dev.friday.assistant android.permission.WRITE_SECURE_SETTINGS).
+         * After that Friday can also turn the service back on whenever the phone switches it off (it does that after a force-stop).
+         */
+        fun tryEnable(context: Context): Boolean {
+            if (isEnabled(context)) return true
+            if (context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != android.content.pm.PackageManager.PERMISSION_GRANTED) return false
+            return runCatching {
+                val me = ComponentName(context, FridayAccessibility::class.java).flattenToString()
+                val now = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+                val all = if (now.isBlank()) me else "$now:$me"
+                Settings.Secure.putString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, all)
+                Settings.Secure.putInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+                true
+            }.getOrDefault(false)
+        }
+
+        /** The page of this one service, so turning it on is a single tap; the general list where the phone has no such page. */
+        fun settingsIntent(context: Context): android.content.Intent {
+            val me = ComponentName(context, FridayAccessibility::class.java).flattenToString()
+            return android.content.Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                .putExtra(android.content.Intent.EXTRA_COMPONENT_NAME, me)
+        }
+
         fun isEnabled(context: Context): Boolean {
             val me = ComponentName(context, FridayAccessibility::class.java).flattenToString()
             val on = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
