@@ -1,1 +1,1 @@
-{"code":147,"name":"0.147","sha256":"1db74f736f4fff97effafb3123925b954fb4d569a5fdd4330b40b43c838fbcdb","size":13171623,"notes":"Fix confirm call [publish]","time":"2026-11-17T09:00:12Z"}
+{"code":148,"name":"0.148","sha256":"7718a64b405831944c323984c62bbb0f29c163f75d25ad809b11182fb4a83f09","size":13171662,"notes":"Accessibility: self-enable when WRITE_SECURE_SETTINGS is granted, else open the service page; web search tries more models [publish]","time":"2026-11-17T09:04:49Z"}
