@@ -150,6 +150,16 @@ class PhoneTools(
             schema(required = listOf("fact"), "fact" to prop("string", "Words from the fact to forget")),
         ),
         ToolSpec(
+            "send_whatsapp",
+            "Send a NEW WhatsApp message to a contact by name or number: opens the chat and presses Send. Use for 'Gauri ko WhatsApp pe bolo ki …', " +
+                "'WhatsApp message karo …'. The app reads the words back and asks the user to confirm, so never ask yourself.",
+            schema(
+                required = listOf("to", "text"),
+                "to" to prop("string", "The contact's name or a phone number"),
+                "text" to prop("string", "The exact words to send, only what the user said; never make words up"),
+            ),
+        ),
+        ToolSpec(
             "web_search",
             "Look something up on the web right now: bus or train options and prices, flight fares, opening hours, news, " +
                 "anything the phone's own tools cannot answer. Ask it the full question with every detail (route, date, number of people, " +
@@ -196,7 +206,7 @@ class PhoneTools(
                 "read_messages" -> Inbox.readNew(context, call.args.optString("from").takeIf { it.isNotBlank() }, english)
                 "reply_message" -> replyMessage(call.args.optString("to"), call.args.optString("text"))
                 "digest" -> Inbox.digest(context, english)
-                "no_compose" -> "Naya message abhi main khud nahi bhej sakti. Aaye hue message ka reply kar sakti hu: bolo 'reply ok'."
+                "send_whatsapp" -> sendWhatsapp(call.args.optString("to"), call.args.optString("text"))
                 "web_search" -> webSearch(call.args.optString("question"))
                 "open_link" -> openLink(call.args.optString("url"))
                 "play_song" -> playSong(call.args.optString("song"))
@@ -550,6 +560,63 @@ class PhoneTools(
         val removed = InboxDb.get(context).forgetFacts(words)
         return if (removed == 0) say("Aisa kuch yaad nahi tha.", "I didn't have anything like that.")
         else say("Bhool gayi.", "Forgotten.")
+    }
+
+    // ---- New WhatsApp message --------------------------------------------------
+
+    private suspend fun sendWhatsapp(to: String, text: String): String {
+        val words = text.trim()
+        if (to.isBlank()) return say("Kisko bhejna hai?", "Who should I message?")
+        if (words.isEmpty()) {
+            val asked = prompts.ask(say("${to.trim()} ko kya likhu?", "What should I say to ${to.trim()}?"))?.trim().orEmpty()
+            if (asked.isEmpty()) return say("Theek hai, message nahi bheja.", "Okay, I have not sent it.")
+            return sendWhatsapp(to, asked)
+        }
+        if (!dev.friday.assistant.agent.FridayAccessibility.isEnabled(context)) {
+            launch(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return "Error: Accessibility chalu nahi hai. User ko batao: Settings me Friday chalu kare, tabhi WhatsApp ka Send khud dab sakta hai"
+        }
+        // Who: a number is used as it is; a name goes through the same contact matching as calls.
+        val raw = to.trim()
+        val number: String
+        val name: String
+        if (Regex("^[+0-9 ()-]{5,}$").matches(raw)) {
+            number = raw; name = raw
+        } else {
+            if (!prompts.ensureContacts()) return "Error: contacts ki permission nahi mili, naam se message nahi bhej sakta. Number bolo"
+            val book = loadContacts()
+            val matches = rank(book, raw)
+            if (matches.isEmpty()) return "Error: '$raw' se milta koi contact nahi mila. User se poocho kaunsa naam hai"
+            val contact = matches.singleOrNull()?.takeIf { it.score <= 1 } ?: run {
+                val i = prompts.choose(say("Kisko bhejun?", "Who should I message?"), matches.map { it.name })
+                    ?: return say("Theek hai, message nahi bheja.", "Okay, I have not sent it.")
+                matches[i]
+            }
+            number = if (contact.numbers.size == 1) contact.numbers[0] else {
+                val i = prompts.choose(say("${contact.name}: kaunsa number?", "Which number for ${contact.name}?"), contact.numbers)
+                    ?: return say("Theek hai, message nahi bheja.", "Okay, I have not sent it.")
+                contact.numbers[i]
+            }
+            name = contact.name
+        }
+        if (!prompts.confirm(say("$name ko WhatsApp pe bhejun: $words ?", "Send to $name on WhatsApp: $words ?"))) {
+            return say("Theek hai, message nahi bheja.", "Okay, I have not sent it.")
+        }
+        var d = digits(number)
+        if (d.length == 10) d = "91$d" // a local number: India
+        val pending = dev.friday.assistant.agent.WhatsAppSend.start(words)
+        try {
+            launch(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$d?text=" + Uri.encode(words))).setPackage("com.whatsapp"),
+            )
+        } catch (e: Exception) {
+            dev.friday.assistant.agent.WhatsAppSend.clear()
+            return "Error: WhatsApp khul nahi paya (${e.message ?: "phone ne roka"}). User ko khud WhatsApp kholna hoga"
+        }
+        val sent = kotlinx.coroutines.withTimeoutOrNull(15_000) { pending.done.await() } == true
+        dev.friday.assistant.agent.WhatsAppSend.clear()
+        return if (sent) say("$name ko message bhej diya.", "Sent to $name.")
+        else "Error: WhatsApp khula par Send ka button nahi dikha. User ko Send khud dabana hoga"
     }
 
     // ---- Web ----------------------------------------------------------------
