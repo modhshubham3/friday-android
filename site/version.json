@@ -1,1 +1,1 @@
-{"code":144,"name":"0.144","sha256":"f9987348c1f479041813fd712c6f5466546c90f01a0d382974bb2f2e84b8233d","size":13153794,"notes":"Fix stray comment dashes [publish]","time":"2026-11-13T08:40:52Z"}
+{"code":145,"name":"0.145","sha256":"c384622f8b9014fe2869a637c6962a0c54fbb079a48eed70b2c0b004c537306f","size":13153787,"notes":"Web search (Gemini + Google Search) and open_link so Friday can look things up and hand over booking links [publish]","time":"2026-11-17T08:50:21Z"}
